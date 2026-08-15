@@ -64,7 +64,12 @@ class RunStore:
         nav = np.asarray([r["nav"] for r in bundle.navs], dtype=float)
         if nav.size == 0:
             return {"error": "no nav"}
-        dates = [r.get("trade_date") for r in bundle.navs]
+        from datetime import date
+        from datetime import datetime as _dt
+
+        dates: list[date | _dt] | None = [
+            r["trade_date"] for r in bundle.navs if r.get("trade_date")
+        ]
         bench = np.asarray(bundle.benchmark_nav, dtype=float) if bundle.benchmark_nav else None
         m = Metrics.compute(nav, dates=dates, benchmark_nav=bench)
         risk = m.risk
