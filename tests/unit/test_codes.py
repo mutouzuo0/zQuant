@@ -1,3 +1,8 @@
+# coding:utf-8
+# @author      : 木头左
+# @date        : 2026/08/15 21:45:06
+# @description : T-U01：证券代码归一化（设计 3.4）——表驱动全映射 + 幂等 + 非法输入
+
 """T-U01：证券代码归一化（设计 3.4）——表驱动全映射 + 幂等 + 非法输入。"""
 
 from __future__ import annotations

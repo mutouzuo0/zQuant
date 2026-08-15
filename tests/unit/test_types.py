@@ -1,3 +1,8 @@
+# coding:utf-8
+# @author      : 木头左
+# @date        : 2026/08/15 22:09:30
+# @description : T-U02：核心类型/枚举/四时间模型（设计 3.3 / 3.13）
+
 """T-U02：核心类型/枚举/四时间模型（设计 3.3 / 3.13）。"""
 
 from __future__ import annotations

@@ -1,3 +1,8 @@
+# coding:utf-8
+# @author      : 木头左
+# @date        : 2026/08/15 21:45:06
+# @description : 结构化异常体系（设计 10.5 / 4.9）：字段携带、机读输出、未实现 API 模板
+
 """结构化异常体系（设计 10.5 / 4.9）：字段携带、机读输出、未实现 API 模板。"""
 
 from __future__ import annotations

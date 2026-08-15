@@ -70,6 +70,8 @@ select = [
     "UP",  # pyupgrade
     "B",   # flake8-bugbear
 ]
+# UP009: 取消"# coding:utf-8 声明多余"告警——项目约定文件头必须带该声明（木头左编码规范）
+ignore = ["UP009"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["zquant"]

@@ -1,3 +1,8 @@
+# coding:utf-8
+# @author      : 木头左
+# @date        : 2026/08/15 22:09:30
+# @description : T-U03：点时查询协议（设计 3.13）——双时间过滤与防未来数据
+
 """T-U03：点时查询协议（设计 3.13）——双时间过滤与防未来数据。"""
 
 from __future__ import annotations

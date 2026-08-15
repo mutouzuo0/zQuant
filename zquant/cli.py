@@ -1,3 +1,8 @@
+# coding:utf-8
+# @author      : 木头左
+# @date        : 2026/08/15 21:33:45
+# @description : zquant CLI（设计 10.1 三调用面之一；typer + rich）
+
 """zquant CLI（设计 10.1 三调用面之一；typer + rich）。
 
 阶段 A 仅实现 `--version` 与 `config check`；其余命令为占位，

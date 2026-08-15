@@ -1,3 +1,8 @@
+# coding:utf-8
+# @author      : 木头左
+# @date        : 2026/08/15 22:09:30
+# @description : 点时（Point-in-Time）查询协议（设计 3.13）
+
 """点时（Point-in-Time）查询协议（设计 3.13）。
 
 仅 `timestamp <= cutoff` 不足以防未来数据——需要双时间校验:

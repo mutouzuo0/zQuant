@@ -1,3 +1,8 @@
+# coding:utf-8
+# @author      : 木头左
+# @date        : 2026/08/15 21:33:45
+# @description : pytest 全局 fixture（测试方案 §1：seed 固定、临时目录、settings 工厂）
+
 """pytest 全局 fixture（测试方案 §1：seed 固定、临时目录、settings 工厂）。"""
 
 from __future__ import annotations
