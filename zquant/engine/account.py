@@ -71,6 +71,19 @@ class Position:
         """结算后转入新交易日：今日买入量清零（T+1 解冻）。"""
         self.today_qty = 0.0
 
+    def apply_share_change(self, factor: float) -> None:
+        """送转/拆并股（开盘前生效，3.14）：数量 ×factor、avg_cost 同比例稀释。
+
+        总成本不变、每股成本稀释到 1/factor；今日买入量与可卖同比例缩放。
+        """
+        if factor <= 0:
+            raise ZQuantError(f"送转/拆并倍数必须为正，得到 {factor}", stage="account")
+        if self.total_qty == 0:
+            return
+        self.total_qty *= factor
+        self.today_qty *= factor
+        self.avg_cost /= factor
+
 
 @dataclass
 class Account:
