@@ -87,9 +87,7 @@ def resolve_schedule(
 ) -> ScheduleResolution:
     """表驱动解析一条调度声明（设计 5.2 降级规则 1-3 条）。"""
     if api == "run_interval":
-        return ScheduleResolution(
-            timing=None, ok=False, error_code="run_interval_unsupported"
-        )
+        return ScheduleResolution(timing=None, ok=False, error_code="run_interval_unsupported")
     if freq in (Frequency.M1, Frequency.M5):
         # 分钟模式：任何 run_daily 时刻都精确；timer 仍按官方拒绝
         if api == "timer":
@@ -100,9 +98,7 @@ def resolve_schedule(
 
     # ---- 日线模式（Frequency.D1）----
     if api == "timer":
-        return ScheduleResolution(
-            timing=None, ok=False, error_code="schedule_requires_minute_data"
-        )
+        return ScheduleResolution(timing=None, ok=False, error_code="schedule_requires_minute_data")
     if api == "run_weekly" or api == "run_monthly":
         return ScheduleResolution(
             timing=SessionTiming.ON_DAILY_CLOSE,

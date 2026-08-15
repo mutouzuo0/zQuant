@@ -183,7 +183,12 @@ def test_minimal_bar_one_word_limit() -> None:
     assert not _bar(open=10.0, high=10.5, low=9.8, close=10.2).is_one_word_limit
     one_word = _bar(open=11.0, high=11.0, low=11.0, close=11.0, limit_up=True)
     assert not MinimalBar(
-        dt=one_word.dt, open=one_word.open, high=one_word.high,
-        low=one_word.low, close=one_word.close, volume=one_word.volume,
-        suspended=True, limit_up=True,
+        dt=one_word.dt,
+        open=one_word.open,
+        high=one_word.high,
+        low=one_word.low,
+        close=one_word.close,
+        volume=one_word.volume,
+        suspended=True,
+        limit_up=True,
     ).is_one_word_limit

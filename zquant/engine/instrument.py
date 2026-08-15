@@ -123,9 +123,7 @@ class InstrumentProfile:
         return float(sum(eligible))
 
 
-def stock_profile(
-    code: str, *, board: Board = Board.MAIN, name: str = ""
-) -> InstrumentProfile:
+def stock_profile(code: str, *, board: Board = Board.MAIN, name: str = "") -> InstrumentProfile:
     """内置 A 股档案：100 股整手、T+1、板块涨跌停、印花税卖出 0.001、过户费双向。"""
     return InstrumentProfile(
         code=code,

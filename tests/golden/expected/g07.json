@@ -1,0 +1,45 @@
+{
+  "case": "g07",
+  "title": "最低佣金触发（佣金下限）",
+  "description": "小额成交额 500 元 → commission=max(5, 0.0001×500)=5.0（下限兜底）；对照大额 200,000 元 → commission=0.0001×200,000=20.0（比例段）。手算期望值。",
+  "params": {
+    "initial_cash_low": 100000.0,
+    "initial_cash_high": 1000000.0,
+    "amount_low": 500.0,
+    "amount_high": 200000.0,
+    "commission_rate": 0.0001,
+    "commission_min": 5.0
+  },
+  "low": {
+    "qty": 100,
+    "price": 5.0,
+    "amount": 500.0,
+    "commission": 5.0,
+    "cash_after": 99495.0,
+    "pos_mv": 500.0,
+    "equity": 99995.0,
+    "nav": 0.99995
+  },
+  "high": {
+    "qty": 20000,
+    "price": 10.0,
+    "amount": 200000.0,
+    "commission": 20.0,
+    "cash_after": 799980.0,
+    "pos_mv": 200000.0,
+    "equity": 999980.0,
+    "nav": 0.99998
+  },
+  "fees_low": {
+    "commission": 5.0,
+    "stamp_tax": 0.0,
+    "transfer_fee": 0.0,
+    "total": 5.0
+  },
+  "fees_high": {
+    "commission": 20.0,
+    "stamp_tax": 0.0,
+    "transfer_fee": 0.0,
+    "total": 20.0
+  }
+}

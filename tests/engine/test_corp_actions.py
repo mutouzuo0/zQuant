@@ -32,8 +32,12 @@ def _hold(
 ) -> Account:
     acct.apply_fill(
         Fill(
-            order_id="o1", code=code, side=OrderDirection.BUY,
-            price=price, volume=qty, fill_time=SESSION_START,
+            order_id="o1",
+            code=code,
+            side=OrderDirection.BUY,
+            price=price,
+            volume=qty,
+            fill_time=SESSION_START,
         )
     )
     acct.settle_day()  # 模拟昨日建仓，避免 T+1 干扰
@@ -149,8 +153,10 @@ def test_three_time_point_order_validation() -> None:
         _div(ex=date(2026, 6, 15), announce=date(2026, 6, 1), pay=date(2026, 6, 10), per_share=0.5)
     with pytest.raises(ZQuantError, match="缺少 per_share_cash"):
         CorporateAction(
-            code="x", action_type=CorpActionType.CASH_DIV,
-            announce_date=date(2026, 6, 1), ex_date=date(2026, 6, 15),
+            code="x",
+            action_type=CorpActionType.CASH_DIV,
+            announce_date=date(2026, 6, 1),
+            ex_date=date(2026, 6, 15),
         )
     with pytest.raises(ZQuantError, match="ratio 必须为正"):
         _bonus(ex=date(2026, 6, 15), announce=date(2026, 6, 1), ratio=0.0)

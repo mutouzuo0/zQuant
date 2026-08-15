@@ -1,0 +1,51 @@
+{
+  "case": "g04",
+  "title": "涨停一字板买入（不成交 → 当日单 expire + 降级）",
+  "description": "单标的 20 日平坦 10.0；day14 15:00 挂 50,000 股买单；day15 一字涨停整日无成交 → order expire（info_json 标记 one_word_limit）+ 运行降级 completed_degraded；cash 无冻结泄漏。对照组：day16 正常日新单 day17 成交。手算期望值。",
+  "params": {
+    "initial_cash": 1000000.0,
+    "px": 10.0,
+    "qty": 50000,
+    "slip": 0.001,
+    "lot": 100
+  },
+  "fees": {
+    "commission": 0.0,
+    "stamp_tax": 0.0,
+    "transfer_fee": 0.0,
+    "total": 0.0
+  },
+  "checkpoints_primary": [
+    {
+      "day": 14,
+      "equity": 1000000.0,
+      "nav": 1.0,
+      "note": "挂单日：0 成交、0 费用，cash 不变"
+    },
+    {
+      "day": 15,
+      "equity": 1000000.0,
+      "nav": 1.0,
+      "note": "一字板整日无成交 → expire + degradation；现金未冻结（无泄漏）"
+    },
+    {
+      "day": 16,
+      "equity": 1000000.0,
+      "nav": 1.0,
+      "note": "降级后账户不变"
+    }
+  ],
+  "checkpoints_sibling": [
+    {
+      "day": 16,
+      "nav": 1.0,
+      "note": "对照组新单受理（同日 15:00）"
+    },
+    {
+      "day": 17,
+      "equity": 999449.95,
+      "nav": 0.99944995,
+      "note": "正常日成交 10.01×50,000=500,500，佣金 50.05，cash=499,449.95，持仓市值 500,000"
+    }
+  ]
+}

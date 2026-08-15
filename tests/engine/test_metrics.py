@@ -29,7 +29,7 @@ def test_annual_return_and_volatility_hand_math() -> None:
     """nav=[1,1.1,1.21]，r=[0.1,0.1]：年化=1.21^(250/2)-1；波动为 0（收益恒同）。"""
     m = compute_metrics([1.0, 1.1, 1.21], ann=250)
     assert m.risk.total_return == pytest.approx(0.21)
-    assert m.risk.annual_return == pytest.approx(1.21 ** 125 - 1)
+    assert m.risk.annual_return == pytest.approx(1.21**125 - 1)
     assert m.risk.annual_volatility == pytest.approx(0.0)  # ddof=1 + 恒定收益
     assert m.risk.daily_win_rate == pytest.approx(1.0)
 

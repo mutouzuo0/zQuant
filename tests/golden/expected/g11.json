@@ -1,0 +1,55 @@
+{
+  "case": "g11",
+  "title": "分红送转（账户事件）：ex 应收+送转稀释 / pay 到账 / NAV 连续",
+  "description": "持有 20,000 股 @10.0（初始资金 1,000,000，价格平坦 10.0）；day20 除权除息：现金分红 ex=day20、pay=day25、每股 0.5；送转 10送10（×2）。除息除权价=(10.0−0.5)/2=4.75（day20 起 close）。手算三时点 NAV 全等于 1.2。",
+  "params": {
+    "initial_cash": 1000000.0,
+    "init_qty": 20000,
+    "px_before": 10.0,
+    "div_per_share": 0.5,
+    "bonus_factor": 2.0,
+    "ex_px": 4.75
+  },
+  "ex_day": 20,
+  "pay_day": 25,
+  "dividend_amount": 10000.0,
+  "shares_after": 40000,
+  "avg_cost_after": 5.0,
+  "fees": {
+    "commission": 0.0,
+    "stamp_tax": 0.0,
+    "transfer_fee": 0.0,
+    "total": 0.0
+  },
+  "checkpoints": [
+    {
+      "day": 19,
+      "equity": 1200000.0,
+      "nav": 1.2,
+      "note": "除息前：cash 1,000,000 + 20,000×10.0=200,000"
+    },
+    {
+      "day": 20,
+      "equity": 1200000.0,
+      "nav": 1.2,
+      "note": "除息除权日：市值 40,000×4.75=190,000 + 应收 10,000 + cash 1,000,000"
+    },
+    {
+      "day": 25,
+      "equity": 1200000.0,
+      "nav": 1.2,
+      "note": "到账：cash 1,010,000 + 市值 190,000（应收已转可用）"
+    }
+  ],
+  "end_state": {
+    "position": {
+      "total_qty": 40000,
+      "avg_cost": 5.0,
+      "last_price": 4.75,
+      "market_value": 190000.0
+    },
+    "available_cash": 1010000.0,
+    "receivable_cash": 0.0,
+    "status": "completed_exact"
+  }
+}
