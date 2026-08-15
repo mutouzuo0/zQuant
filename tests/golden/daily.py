@@ -20,11 +20,20 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 
 from zquant.core.errors import ZQuantError
+from zquant.core.types import InstrumentType
 from zquant.engine.account import Account, Position
+from zquant.engine.broker import BrokerSim, MatchingModels
+from zquant.engine.instrument import Board, FeeParams, InstrumentProfile, LimitRule
+from zquant.engine.models.bar import MinimalBar
+from zquant.engine.models.fee import FeeModel
+from zquant.engine.models.fill_price import FillModel, PriceBasis
+from zquant.engine.models.liquidity import LiquidityModel
+from zquant.engine.models.slippage import SlippageModel
+from zquant.engine.orderbook import OpenOrderBook
 from zquant.engine.orders import (
     Fill,
     Order,
@@ -99,7 +108,25 @@ class DailyDriver:
         stamp_tax_rate: float = 0.0005,
         transfer_fee_rate: float = 0.0,
     ) -> None:
+        # 阶段 F: 真实撮合接管——MockBroker 仅作兼容占位（program() 不再生效）
         self.broker = broker
+        self.order_book = OpenOrderBook()
+        # FillModel 的 ask/bid 侧代理承担 0.001 滑点（与手算一致, 5.3.3）;
+        # SlippageModel 置 0 避免双重滑点; 容量参与率 25%（golden 合成量充足不触发）
+        self.broker_sim = BrokerSim(
+            models=MatchingModels(
+                fill=FillModel(basis=PriceBasis.NEXT_OPEN, half_spread=0.001),
+                slippage=SlippageModel(ratio=0.0),
+                fee=FeeModel(),
+                liquidity=LiquidityModel(max_participation=0.25),
+            )
+        )
+        self._fee_params = FeeParams(
+            commission_rate=commission_rate,
+            commission_min=commission_min,
+            stamp_tax_rate=stamp_tax_rate,
+            transfer_fee_rate=transfer_fee_rate,
+        )
         self.run_id = "g-golden"
         self.account = Account(
             run_id=self.run_id, initial_cash=initial_cash, available_cash=initial_cash
@@ -108,6 +135,7 @@ class DailyDriver:
         self.commission_min = commission_min
         self.stamp_tax_rate = stamp_tax_rate
         self.transfer_fee_rate = transfer_fee_rate
+        self._profiles: dict[str, InstrumentProfile] = {}
         self.sessions: list[DaySession] = []
         self.sessions_by_date: dict[str, DaySession] = {}
         self.data: dict[str, dict[str, DayBar]] = {}
@@ -223,7 +251,7 @@ class DailyDriver:
         for bdate, cb in self._before_open:
             if bdate == date:
                 cb()
-        # 2) 开盘：撮合上一日挂单（eligible_fill_at=今日开盘，4.5）
+        # 2) 开盘：撮合上一日挂单（BrokerSim 真实撮合, 5.3.2）
         self._fill_pending(date)
         # 3) 15:00 收盘：策略回调（handle_data 语义；无回调则跳过）
         #    回调前刷新基准价=今日收盘已可见（每日估值基准，4.5 当前价）
@@ -231,6 +259,8 @@ class DailyDriver:
         self._refresh_closes(date)
         if action is not None:
             action()
+        # 3b) 收盘: 当日未成交 day 单过期（5.3.4）
+        self._expire_day_orders(date)
         # 4) 清算：交收 + T+1 移动 + 现金分红到账（4.4/5.1）
         self._sequencing(date)
         # 5) 收盘估值：算净值（4.9.2 nav 要素）；盘后调度点（g10）
@@ -240,36 +270,68 @@ class DailyDriver:
                 cb()
 
     def _fill_pending(self, date: str) -> None:
-        pending, self._pending = self._pending, []
-        for order in pending:
-            before = len(self.broker.events)
-            self.broker.submit(order)
-            # 合并撮合产生的状态迁移事件（fill/partial/expire/reject）；
-            # ACCEPTED 已在 _accepted 受理时刻记录（5.3.1），不重复合并。
-            self._events.extend(
-                ev
-                for ev in self.broker.events[before:]
-                if ev.event_type is not OrderEventType.ACCEPTED
+        """开盘撮合（阶段⑤, 5.3.2）：BrokerSim 真实撮合上一交易日挂单。
+
+        按标的逐 code 构造当日 bar → process_orders（BrokerSim 按 bar 时点自筛 eligible
+        订单）; 成交入账/费用/过期/降级由结果驱动。
+        """
+        open_dt = _dt(date, 9, 30)
+        for code in sorted(self.data):
+            day_bar = self.data[code].get(date)
+            if day_bar is None:
+                continue  # 无当日 bar（退市后）: 不撮合, day 单收盘过期
+            bar = MinimalBar(
+                dt=open_dt,
+                open=day_bar.open,
+                high=day_bar.high,
+                low=day_bar.low,
+                close=day_bar.close,
+                volume=day_bar.volume,
+                pre_close=day_bar.prev_close,
+                suspended=day_bar.suspended,
+                limit_up=day_bar.limit_up,
+                limit_down=day_bar.limit_down,
             )
-            self._settle_order(order, date)
+            outcomes = self.broker_sim.process_orders(self.order_book, bar, self._profile(code))
+            for oc in outcomes:
+                self._apply_outcome(oc, date)
 
-    def _settle_order(self, order: Order, date: str) -> None:
-        """成交流水、记账（Account apply_fill）与费用核算（8.3.3）。
-
-        过期（一字板/停牌顺延未成交）视为可解释降级（4.9.2 g04/g05）。"""
-        if order.status is OrderStatus.REJECTED:
-            # 已在受理前拒绝（资金/T+1 预检），事件由 _reject 记录
-            return
-        if order.status is OrderStatus.EXPIRED:
+    def _apply_outcome(self, oc, date: str) -> None:  # type: ignore[no-untyped-def]
+        """应用 BrokerSim 撮合结果: 事件/成交入账/一字板降级/过期降级。"""
+        order = oc.order
+        # 成交/过期/部分成交等事件（ACCEPTED 已在受理时记录）
+        self._events.extend(oc.events)
+        if oc.one_word_board:
+            # 一字板整日未成交: day 单已由 BrokerSim EXPIRE, 只记一字板降级（不叠加通用过期）
             if self.status == "completed_exact":
-                self.status = "completed_degraded"  # 成交未竟，运行仍完成
+                self.status = "completed_degraded"
+            self._degradations.append(f"{order.order_id} @{date}: one_word 一字板未成交")
+        elif order.status is OrderStatus.EXPIRED:
+            if self.status == "completed_exact":
+                self.status = "completed_degraded"
             self._degradations.append(
                 f"{order.order_id} @{date}: expired({order.time_in_force.value}) "
                 f"({order.code} limit_up/停牌未成交)"
             )
-        for fill in self.broker.fills:
-            if fill.order_id == order.order_id and fill not in self._fills:
-                self._fills.append(self._account_fill(order, fill))
+        if oc.fill is not None:
+            self._fills.append(self._account_fill(order, oc.fill))
+        # 终态才移出账本; 停牌/无量 no-op（仍 PENDING）保留至收盘过期（5.3.4）
+        if order.status in (
+            OrderStatus.FILLED,
+            OrderStatus.EXPIRED,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+        ):
+            self.order_book.drop_order(order.order_id)
+
+    def _expire_day_orders(self, date: str) -> None:
+        """收盘清算（5.3.4）: 当日未成交的 day 单 → EXPIRE（gtc 跨日保留）。"""
+        events = self.order_book.expire_day_orders(when=_dt(date, 15, 0))
+        for ev in events:
+            self._events.append(ev)
+            if self.status == "completed_exact":
+                self.status = "completed_degraded"
+            self._degradations.append(f"{ev.order_id} @{date}: expired(day) 当日未成交")
 
     def _sequencing(self, date: str) -> None:
         """日终清算序列（5.5）：现金分红到账（pay_date）→ T+1 今日买入量清零。"""
@@ -476,15 +538,15 @@ class DailyDriver:
         self, code: str, direction: OrderDirection, qty: float, style: OrderStyle
     ) -> Order:
         order = self._new_order(code, direction, qty, style)
-        order.status = OrderStatus.PENDING
-        self._events.append(
-            OrderEvent(
-                order_id=order.order_id,
-                event_type=OrderEventType.ACCEPTED,
-                event_time=self._last_action_time(code),
-            )
+        ev = self.order_book.accept(
+            order,
+            available_cash=self.account.available_cash,
+            ref_price=self._px(code),
+            commission_rate=self.commission_rate,
+            min_commission=self.commission_min,
         )
-        self._pending.append(order)  # 预约下一交易日开盘撮合
+        if ev is not None:
+            self._events.append(ev)  # ACCEPTED（或拒单, 见 _place 前置校验后的兜底）
         return order
 
     def _reject(
@@ -537,34 +599,36 @@ class DailyDriver:
         return [f for f in self._fills if f.order_id == order.order_id]
 
     def _account_fill(self, order: Order, fill: Fill) -> Fill:
-        """成交记账（5.5 apply_fill）与费用核算（8.3.3）。
+        """成交记账（5.5 apply_fill）与费用核算。
 
-        Fill 为 frozen dataclass——费用通过 replace() 产出新实例写回快照，
-        返回该实例供 _fills 记录（六要素断言以本实例为准）。
+        费用由 BrokerSim 的 FeeModel 依档案计算并写入 fill（8.3.3）——
+        fill 即最终入账实例（六要素断言以本实例为准）。
         """
-        fee_comp, fee_stamp, fee_transfer = self._fees_for(fill)
-        fee_fill = replace(
-            fill,
-            commission=fee_comp,
-            stamp_tax=fee_stamp,
-            transfer_fee=fee_transfer,
-        )
-        self._fees["commission"] += fee_comp
-        self._fees["stamp_tax"] += fee_stamp
-        self._fees["transfer_fee"] += fee_transfer
-        self.account.apply_fill(fee_fill)
-        when = fee_fill.fill_time
-        if fee_fill.side is OrderDirection.BUY:
-            self._cash.post(when, -(fee_fill.amount + fee_fill.total_fee), f"buy {fee_fill.code}")
+        self._fees["commission"] += fill.commission
+        self._fees["stamp_tax"] += fill.stamp_tax
+        self._fees["transfer_fee"] += fill.transfer_fee
+        self.account.apply_fill(fill)
+        when = fill.fill_time
+        if fill.side is OrderDirection.BUY:
+            self._cash.post(when, -(fill.amount + fill.total_fee), f"buy {fill.code}")
         else:
-            self._cash.post(when, fee_fill.amount - fee_fill.total_fee, f"sell {fee_fill.code}")
-        return fee_fill
+            self._cash.post(when, fill.amount - fill.total_fee, f"sell {fill.code}")
+        return fill
 
-    def _fees_for(self, fill: Fill) -> tuple[float, float, float]:
-        commission = max(self.commission_min, fill.amount * self.commission_rate)
-        stamp = fill.amount * self.stamp_tax_rate if fill.side is OrderDirection.SELL else 0.0
-        transfer = fill.amount * self.transfer_fee_rate
-        return commission, stamp, transfer
+    def _profile(self, code: str) -> InstrumentProfile:
+        """按黄金费率参数构建品种档案（撮合费用/涨跌停, 5.4）。"""
+        prof = self._profiles.get(code)
+        if prof is None:
+            prof = InstrumentProfile(
+                code=code,
+                instrument_type=InstrumentType.STOCK,
+                lot_size=100,
+                t_plus=1,
+                limit_rule=LimitRule(board=Board.MAIN),
+                fee=self._fee_params,
+            )
+            self._profiles[code] = prof
+        return prof
 
     def _last_action_time(self, code: str) -> datetime:
         """策略动作时刻：当前交易日 15:00（4.7 日线挂 15:00）。"""

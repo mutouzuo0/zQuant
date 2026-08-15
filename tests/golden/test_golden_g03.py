@@ -27,7 +27,8 @@ N = 30
 PX = 10.0
 QTY = 50_000
 SLIP = 0.001
-FILL_PX = round(PX * (1.0 + SLIP), 4)  # 10.01
+FILL_PX = round(PX * (1.0 + SLIP), 4)  # 10.01（买=ask 侧, 真实撮合）
+SELL_FILL_PX = round(PX * (1.0 - SLIP), 4)  # 9.99（卖=bid 侧, 真实撮合）
 
 
 def test_g03_t_plus_sell_rejected_then_ok() -> None:
@@ -80,9 +81,9 @@ def test_g03_t_plus_sell_rejected_then_ok() -> None:
             {
                 "code": CODE,
                 "side": OrderDirection.SELL,
-                "price": FILL_PX,
+                "price": SELL_FILL_PX,
                 "volume": QTY,
-                "amount": round(FILL_PX * QTY, 2),
+                "amount": round(SELL_FILL_PX * QTY, 2),
                 "fill_time": datetime.strptime(f"{d13} 09:30", "%Y-%m-%d %H:%M"),
             },
         ],

@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from zquant.engine.orders import OrderDirection, OrderStatus
 
 from .conftest import load_expected, make_bars
@@ -31,11 +33,18 @@ SLIP = 0.001
 FILL_PX = round(PX * (1.0 + SLIP), 4)  # 10.01
 
 
+def _bars() -> list:
+    """平坦数据, day15（index 14）标记一字涨停板（真实撮合语义, 5.3.2）。"""
+    bars = make_bars(CODE, [PX] * N)
+    bars[14] = replace(bars[14], limit_up=True)  # open==high==low==close 且触板 → is_one_word_limit
+    return bars
+
+
 def test_g04_one_word_board_expire() -> None:
     """一字涨停整日不成交→expire+标记；现金/持仓无变化。"""
     broker = MockBroker()
     driver = DailyDriver(broker, initial_cash=1_000_000.0)
-    bars = make_bars(CODE, [PX] * N)
+    bars = _bars()
     driver.add_data({CODE: bars})
 
     d14 = bars[13].date
@@ -83,7 +92,7 @@ def test_g04_normal_day_sibling_fills() -> None:
     """对照组：非一字涨停日新单正常成交（同一批订单只在涨停日挂）。"""
     broker = MockBroker()
     driver = DailyDriver(broker, initial_cash=1_000_000.0)
-    bars = make_bars(CODE, [PX] * N)
+    bars = _bars()
     driver.add_data({CODE: bars})
 
     d14, d16 = bars[13].date, bars[15].date

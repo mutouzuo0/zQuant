@@ -49,29 +49,29 @@ def test_g07_min_commission_floor() -> None:
             {
                 "code": CODE_LO,
                 "side": OrderDirection.BUY,
-                "price": 5.0,
+                "price": 5.005,  # ask 侧 5.0×1.001（真实撮合, 5.3.3）
                 "volume": 100.0,
-                "amount": 500.0,
+                "amount": 500.5,
             },
         ],
         fees={"commission": low["commission"], "stamp_tax": 0.0, "transfer_fee": 0.0},
         status="completed_exact",
     )
     assert snap.fee_total == EXP["fees_low"]["total"]
-    # day0 未成交 NAV=1.0；day1 起成交后 NAV=oracle 手算 0.99995（恒）
+    # day0 未成交 NAV=1.0；day1 起成交后 NAV=oracle 手算 0.999945（恒）
     navs = [p.nav for p in snap.nav_series]
     assert abs(navs[0] - 1.0) <= 1e-10
     assert all(abs(n - low["nav"]) <= 1e-10 for n in navs[1:])
 
 
 def test_g07_large_commission_proportional() -> None:
-    """对照：200,000 元成交额 → 佣金=20.0（比例段，未触下限）。"""
+    """对照：200,200 元成交额 → 佣金=20.02（比例段，未触下限）。"""
     broker = MockBroker()
     driver = DailyDriver(broker, initial_cash=1_000_000.0)
     bars = flat_series(CODE_HI, N, price=10.0)
     driver.add_data({CODE_HI: bars})
     d0 = bars[0].date
-    qty = 20_000  # 20,000×10=200,000
+    qty = 20_000  # 20,000×10.01=200,200
 
     def _big_buy() -> None:
         o = driver.order(CODE_HI, OrderDirection.BUY, qty)
@@ -82,9 +82,10 @@ def test_g07_large_commission_proportional() -> None:
     snap = driver.run()
 
     high = EXP["high"]
-    assert snap.fees["commission"] == high["commission"]  # oracle：20.0（0.0001×200,000）
+    assert snap.fees["commission"] == high["commission"]  # oracle：20.02（0.0001×200,200）
     assert snap.fee_total == EXP["fees_high"]["total"]
     assert len(snap.fills) == 1
+    assert abs(snap.fills[0].price - 10.01) <= 1e-10
     navs = [p.nav for p in snap.nav_series]
     assert abs(navs[0] - 1.0) <= 1e-10  # day0 未成交
     assert all(abs(n - high["nav"]) <= 1e-10 for n in navs[1:])

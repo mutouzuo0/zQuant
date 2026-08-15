@@ -77,9 +77,9 @@ def test_g13_daily_side_timestamps() -> None:
             {
                 "code": CODE,
                 "side": OrderDirection.BUY,
-                "price": PX,
+                "price": round(PX * 1.001, 4),  # 10.01（真实撮合 ask 侧滑点, 5.3.3）
                 "volume": 10_000,
-                "amount": PX * 10_000,
+                "amount": round(PX * 1.001, 4) * 10_000,
                 "fill_time": when_open,
             },
         ],

@@ -94,6 +94,7 @@ def make_bars(
                 close=close,
                 prev_close=prev_close,
                 suspended=i in suspended,
+                volume=1_000_000_000.0,  # 合成量充足: BrokerSim 容量(25%)不触发, 全量成交
             )
         )
         prev_close = bars[i].close
