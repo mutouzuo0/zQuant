@@ -63,6 +63,7 @@ lint-imports                                    # 依赖契约
 6. **接口变更**必须回写设计文档并升版本号，同时更新 `.zcode/plans/` 下计划进度。
 7. 黄金用例断言**六要素**（订单/成交/现金/持仓/费用/净值）逐笔比对，禁止只看最终收益（4.9.2）。
 8. 全量 `from __future__ import annotations` + 类型注解；异常带 `run_id/stage/hint`。
+9. **文件头注释**：每个 `.py` 文件必须带块注释（模板见用户级 `~/.zcode/AGENTS.md`）：`# coding:utf-8` + `@author: 木头左` + `@create_time` + `@update_time` + `@description`；新建文件两时间同值，修改仅更新 `@update_time`。头注释不准确视为缺陷。
 
 ## 数据目录约定（设计 3.12）
 

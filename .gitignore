@@ -9,7 +9,8 @@ config/settings.json
 *.local.json
 
 # ---- 本地数据与运行产物 ----
-data/
+# 注意: 必须锚定根目录（/data/），否则会误伤 zquant/data/ 源码与 tests/data/ 测试
+/data/
 results/
 .cache/
 zquant.db*
