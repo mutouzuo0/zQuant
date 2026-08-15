@@ -1,6 +1,7 @@
 # coding:utf-8
 # @author      : 木头左
-# @date        : 2026/08/15 21:33:45
+# @create_time        : 2026/08/15 21:33:45
+# @update_time        : 2026/08/16 06:48:31
 # @description : 配置加载与校验（设计 3.6 配置体系）
 
 """配置加载与校验（设计 3.6 配置体系）。
@@ -123,8 +124,15 @@ class Settings(BaseModel):
 # 加载函数
 # ------------------------------------------------------------------
 def load_settings(path: Path | str | None = None) -> Settings:
-    """加载 settings.json；文件缺失时返回默认值（本地零配置可跑）。"""
-    path = Path(path) if path is not None else DEFAULT_SETTINGS_PATH
+    """加载 settings.json；文件缺失时返回默认值（本地零配置可跑）。
+
+    路径优先级: 显式 path > 环境变量 ZQUANT_SETTINGS > config/settings.json（3.6:
+    环境变量优先于文件）。子进程（--isolate）通过 ZQUANT_SETTINGS 传递隔离配置。
+    """
+    if path is None:
+        env_path = os.environ.get("ZQUANT_SETTINGS")
+        path = Path(env_path) if env_path else DEFAULT_SETTINGS_PATH
+    path = Path(path)
     if not path.exists():
         return Settings()
     raw = json.loads(path.read_text(encoding="utf-8"))

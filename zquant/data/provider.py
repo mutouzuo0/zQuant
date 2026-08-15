@@ -1,7 +1,7 @@
 # coding:utf-8
 # @author      : 木头左
 # @create_time        : 2026/08/16 00:38:00
-# @update_time        : 2026/08/16 00:38:00
+# @update_time        : 2026/08/16 06:48:31
 # @description : D6 MarketDataProvider：PIT 时点 + BarArray 二分（3.7/3.8/3.13）
 
 """统一数据供给层（设计 3.7/3.8/3.13）——三段式管道第 ③ 段。
@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -106,12 +106,24 @@ class MarketDataProvider:
             return self._normalizer.normalize(raw, code, fmt="auto", limit=None)
 
         if self._cache is not None:
-            df = self._cache.get(code, frequency, adjust, loader=loader)
+            df = self._cache.get(
+                code, frequency, adjust, loader=loader, source_ref=self._source_path(code)
+            )
         else:
             df = loader()
         arr = df_to_bar_array(df)
         self._arrays[code] = arr
         return arr
+
+    def _source_path(self, code: str) -> Any | None:
+        """源 CSV 路径（L2 失效判据, 3.7 mtime/size; 非本地 CSV 驱动 → None 永不失效）。"""
+        driver = getattr(self._driver, "kline_path", None)
+        if driver is None:
+            return None
+        try:
+            return driver(code, Frequency.D1)
+        except ZQuantError:
+            return None
 
     def preload(
         self, codes: list[str], start: datetime, end: datetime, frequency: Frequency = Frequency.D1

@@ -1,7 +1,7 @@
 # coding:utf-8
 # @author      : 木头左
 # @create_time        : 2026/08/16 03:16:00
-# @update_time        : 2026/08/16 03:16:00
+# @update_time        : 2026/08/16 06:48:31
 # @description : G3 store/repo.py：RunRepo（run 创建/快照复用/软删除/purge）+ DetailRepo（批量插入）
 
 """仓储层（设计 8.3/8.7）——SQL 访问的唯一入口。
@@ -13,6 +13,7 @@ DetailRepo 明细批量插入（executemany, 8.7）: orders/order_events/fills/n
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
@@ -36,6 +37,17 @@ from zquant.store.models import (
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _sharpe_from_metrics(metrics_json: str | None) -> float | None:
+    """从 backtest_metrics.metrics_json 提取 sharpe（list 排序用, 8.4）。"""
+    if not metrics_json:
+        return None
+    try:
+        data = json.loads(metrics_json)
+        return data.get("metrics", {}).get("sharpe")
+    except (json.JSONDecodeError, AttributeError):
+        return None
 
 
 class RunRepo:
@@ -107,6 +119,107 @@ class RunRepo:
     def get(self, run_id: str) -> BacktestRun | None:
         with Session(self.engine, expire_on_commit=False) as s:
             return s.get(BacktestRun, run_id)
+
+    def list_runs(self, *, sort_by: str = "started_at", limit: int = 50) -> list[dict[str, Any]]:
+        """列出未软删除的 run（I 阶段 `zquant list`, 8.3.1）。"""
+        order = {
+            "started_at": BacktestRun.started_at.desc(),
+            "sharpe": None,  # 需关联 metrics, 单独处理
+        }
+        with Session(self.engine, expire_on_commit=False) as s:
+            if sort_by == "sharpe":
+                rows = s.execute(
+                    select(BacktestRun, BacktestMetrics.metrics_json)
+                    .join(BacktestMetrics, BacktestRun.id == BacktestMetrics.run_id, isouter=True)
+                    .where(BacktestRun.deleted_at.is_(None))
+                    .order_by(BacktestRun.started_at.desc())
+                    .limit(limit)
+                ).all()
+                runs: list[dict[str, Any]] = []
+                for run, metrics_json in rows:
+                    d = self._run_dict(run)
+                    d["sharpe"] = _sharpe_from_metrics(metrics_json)
+                    runs.append(d)
+                runs.sort(key=lambda r: (r.get("sharpe") is None, -(r.get("sharpe") or 0.0)))
+                return runs
+            run_rows = (
+                s.execute(
+                    select(BacktestRun)
+                    .where(BacktestRun.deleted_at.is_(None))
+                    .order_by(order.get(sort_by, BacktestRun.started_at.desc()))
+                    .limit(limit)
+                )
+                .scalars()
+                .all()
+            )
+            return [self._run_dict(r) for r in run_rows]
+
+    @staticmethod
+    def _run_dict(run: BacktestRun) -> dict[str, Any]:
+        return {
+            "run_id": run.id,
+            "task_name": run.task_name,
+            "platform": run.platform,
+            "status": run.status,
+            "manifest_hash": run.manifest_hash,
+            "started_at": run.started_at,
+            "finished_at": run.finished_at,
+            "zquant_version": run.zquant_version,
+            "error_log": run.error_log,
+        }
+
+    def set_manifest(self, run_id: str, manifest_json: str, manifest_hash: str) -> None:
+        """写入确定性重放清单（8.8; run_manifest 1:1）。"""
+        with Session(self.engine, expire_on_commit=False) as s:
+            existing = s.get(RunManifest, run_id)
+            if existing is None:
+                s.add(
+                    RunManifest(
+                        run_id=run_id, manifest_json=manifest_json, manifest_hash=manifest_hash
+                    )
+                )
+            else:
+                existing.manifest_json = manifest_json
+                existing.manifest_hash = manifest_hash
+            s.execute(
+                update(BacktestRun)
+                .where(BacktestRun.id == run_id)
+                .values(manifest_hash=manifest_hash)
+            )
+            s.commit()
+
+    def get_manifest(self, run_id: str) -> tuple[str, str] | None:
+        """读取 (manifest_json, manifest_hash); 缺失 → None。"""
+        with Session(self.engine, expire_on_commit=False) as s:
+            row = s.get(RunManifest, run_id)
+            if row is None:
+                return None
+            return row.manifest_json, row.manifest_hash
+
+    def set_metrics(self, run_id: str, metrics_json: str, metrics_version: str) -> None:
+        """写入绩效指标（8.4; backtest_metrics 1:1）。"""
+        with Session(self.engine, expire_on_commit=False) as s:
+            existing = s.get(BacktestMetrics, run_id)
+            if existing is None:
+                s.add(
+                    BacktestMetrics(
+                        run_id=run_id,
+                        metrics_json=metrics_json,
+                        metrics_version=metrics_version,
+                    )
+                )
+            else:
+                existing.metrics_json = metrics_json
+                existing.metrics_version = metrics_version
+            s.commit()
+
+    def get_metrics(self, run_id: str) -> dict[str, Any] | None:
+        """读取指标 dict（metrics_json 解析; 缺失 → None）。"""
+        with Session(self.engine, expire_on_commit=False) as s:
+            row = s.get(BacktestMetrics, run_id)
+            if row is None:
+                return None
+            return json.loads(row.metrics_json)
 
     # ------------------------------------------------------------------
     def soft_delete(self, run_id: str) -> None:

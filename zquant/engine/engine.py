@@ -1,7 +1,7 @@
 # coding:utf-8
 # @author      : 木头左
 # @create_time        : 2026/08/16 02:10:00
-# @update_time        : 2026/08/16 02:10:00
+# @update_time        : 2026/08/16 06:48:31
 # @description : F3 UnifiedBacktestEngine：日内十阶段主循环（设计 5.1/6.4）
 
 """UnifiedBacktestEngine（设计 5.1）——统一回测主循环。
@@ -83,7 +83,11 @@ class UnifiedBacktestEngine:
     def __init__(self, session: SessionPort, *, broker: BrokerSim | None = None) -> None:
         self.session = session
         self.broker = broker or BrokerSim()
-        self.order_book = OpenOrderBook()
+        # 待撮合账本与会话共享同一实例（orders_to_book 受理 → 此处撮合, 5.3.1）;
+        # 无 order_book 的桩会话（T-E04）回退到引擎自有账本。
+        self.order_book: Any = getattr(session, "order_book", None)
+        if self.order_book is None:
+            self.order_book = OpenOrderBook()
         self.control = ControlSignal()
         self.trace = StageTrace()
         self.degradations: list[str] = []

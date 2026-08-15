@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://zquant.local/schema/task.schema.json",
+  "title": "zQuant 回测任务配置（设计 3.6）",
+  "description": "回测任务唯一事实来源: strategy.file/type/entry + backtest 区间/资金/基准 + universe + fees 覆盖项。",
+  "type": "object",
+  "required": ["task_name", "strategy", "backtest", "universe"],
+  "additionalProperties": true,
+  "properties": {
+    "task_name": {
+      "type": "string",
+      "description": "任务名（list/report 展示用）"
+    },
+    "strategy": {
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": true,
+      "properties": {
+        "file": { "type": "string", "description": "策略源码路径（相对仓库根或绝对路径）" },
+        "type": {
+          "type": "string",
+          "enum": ["native", "joinquant", "ptrade"],
+          "description": "策略平台适配器（native 本轮; joinquant/ptrade M2）"
+        },
+        "entry": { "type": "string", "default": "on_bar" }
+      }
+    },
+    "backtest": {
+      "type": "object",
+      "required": ["start", "end"],
+      "additionalProperties": true,
+      "properties": {
+        "start": { "type": "string", "format": "date", "description": "回测开始日 YYYY-MM-DD" },
+        "end": { "type": "string", "format": "date", "description": "回测结束日 YYYY-MM-DD" },
+        "initial_capital": { "type": "number", "minimum": 0, "default": 1000000 },
+        "benchmark": { "type": ["string", "null"], "description": "基准代码（生成 benchmark_nav, 8.4）" },
+        "frequency": { "type": "string", "enum": ["1d"], "default": "1d" },
+        "initial_positions": {
+          "type": "object",
+          "additionalProperties": { "type": "number" },
+          "description": "初始持仓 code → qty"
+        },
+        "strict_schedule": { "type": "boolean", "default": false },
+        "delist_dates": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "退市标的 code → 最后交易日 YYYY-MM-DD"
+        },
+        "corp_actions": {
+          "type": "array",
+          "items": { "type": "object" },
+          "description": "公司行为三日期事件（3.14）"
+        }
+      }
+    },
+    "universe": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "回测股票池（归一代码, 3.4）"
+    },
+    "fees": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "commission_rate": { "type": "number", "minimum": 0 },
+        "min_commission": { "type": "number", "minimum": 0 },
+        "stamp_tax_rate": { "type": "number", "minimum": 0 },
+        "transfer_fee_rate": { "type": "number", "minimum": 0 }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "撮合覆盖项（M5 增强, 预留）"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "task_name": "demo_dual_ma",
+  "strategy": {
+    "file": "strategies/native/dual_ma.py",
+    "type": "native",
+    "entry": "on_bar"
+  },
+  "backtest": {
+    "start": "2020-01-01",
+    "end": "2025-12-31",
+    "initial_capital": 1000000,
+    "benchmark": "510300.SH",
+    "frequency": "1d",
+    "initial_positions": {},
+    "strict_schedule": false
+  },
+  "universe": ["510300.SH"],
+  "fees": {
+    "commission_rate": 0.0001,
+    "min_commission": 5.0,
+    "stamp_tax_rate": 0.0,
+    "transfer_fee_rate": 0.0
+  },
+  "engine": {}
+}

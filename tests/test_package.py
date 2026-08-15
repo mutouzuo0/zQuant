@@ -1,6 +1,7 @@
 # coding:utf-8
 # @author      : 木头左
-# @date        : 2026/08/15 21:33:45
+# @create_time        : 2026/08/15 21:33:45
+# @update_time        : 2026/08/16 06:48:31
 # @description : 阶段 A 冒烟测试：包可安装、配置加载/脱敏正确、CLI 入口可用
 
 """阶段 A 冒烟测试：包可安装、配置加载/脱敏正确、CLI 入口可用。
@@ -104,10 +105,12 @@ def test_cli_help_lists_commands() -> None:
         assert cmd in result.output
 
 
-def test_cli_placeholder_command_exit_code() -> None:
-    """未实现命令结构化占位（退出码 2），不是静默成功。"""
-    result = runner.invoke(app, ["run", "-c", "task.json"])
-    assert result.exit_code == 2
+def test_cli_run_missing_config_fails_gracefully(tmp_path: Path) -> None:
+    """阶段 I 后 run 已实现: 缺失任务文件 → 结构化错误 + 退出码 1（非占位 2）。"""
+    result = runner.invoke(app, ["run", "-c", str(tmp_path / "missing.json"), "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["error"]["type"] == "ZQuantError"
 
 
 def test_cli_config_check_with_missing_files(monkeypatch, tmp_path: Path) -> None:
