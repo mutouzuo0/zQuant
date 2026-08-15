@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 01:02:00
-# @update_time       : 2026/08/16 01:02:00
-# @description       : T-D03：三格式归一黄金比对 + 停牌/缺失值/涨跌停（设计 3.3/5.4）
+# @author      : 木头左
+# @create_time        : 2026/08/16 01:02:00
+# @update_time        : 2026/08/16 01:02:00
+# @description : T-D03：归一黄金比对 + 停牌/缺失值/涨跌停（设计 3.3）
 
 """T-D03：三格式同源数据归一后与手算期望表逐列全等（TOL=1e-10）；含停牌与缺失值规则。"""
 
@@ -20,7 +20,12 @@ FORMATS = ("tushare", "joinquant", "generic")
 
 
 def _normalize(drv, code: str, *, limit=None) -> pd.DataFrame:  # type: ignore[no-untyped-def]
-    raw = drv.load_kline(code, Frequency.D1, pd.Timestamp("2024-01-01", tz="Asia/Shanghai"), pd.Timestamp("2024-12-31", tz="Asia/Shanghai"))
+    raw = drv.load_kline(
+        code,
+        Frequency.D1,
+        pd.Timestamp("2024-01-01", tz="Asia/Shanghai"),
+        pd.Timestamp("2024-12-31", tz="Asia/Shanghai"),
+    )
     return DataNormalizer().normalize(raw, code, fmt="auto", limit=limit)
 
 
@@ -31,7 +36,9 @@ def _frames_almost_equal(actual: pd.DataFrame, expected: pd.DataFrame) -> None:
         a, e = actual[col].to_numpy(dtype="float64"), expected[col].to_numpy(dtype="float64")
         mask = ~pd.isna(e)
         assert (pd.isna(a) == pd.isna(e)).all(), f"NaN 位置不一致: {col}"
-        assert pd.Series(a[mask]).sub(pd.Series(e[mask])).abs().max() <= FILL_TOL, f"数值超差: {col}"
+        assert pd.Series(a[mask]).sub(pd.Series(e[mask])).abs().max() <= FILL_TOL, (
+            f"数值超差: {col}"
+        )
 
 
 def test_golden_normalized_per_format(make_driver, tmp_path, etf_limit) -> None:  # type: ignore[no-untyped-def]

@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 01:20:00
-# @update_time       : 2026/08/16 01:20:00
-# @description       : T-D06：MarketDataProvider PIT 防泄露 + bar_at 二分/随机交叉验证 + 预加载模式（3.7/3.8/3.13）
+# @author      : 木头左
+# @create_time        : 2026/08/16 01:20:00
+# @update_time        : 2026/08/16 01:20:00
+# @description : T-D06：Provider PIT + bar_at 二分交叉验证（3.7/3.13）
 
 """T-D06：Provider PIT 强制时点 + numpy 快路径一致性 + 预加载三模式（设计 3.7/3.8/3.13）。"""
 
@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from zquant.core.errors import ZQuantError
-from zquant.core.types import AdjustMode, Frequency
+from zquant.core.types import Frequency
 from zquant.data.cache import DataCache
 from zquant.data.calendar import TradeCalendar
 from zquant.data.drivers.csv_driver import CsvSourceDriver
@@ -26,9 +26,14 @@ from .conftest import asof, day_bar_ts, write_day_csv
 
 
 def _make_provider(tmp_path, preload_mode: str = "window") -> MarketDataProvider:  # type: ignore[no-untyped-def]
-    src = write_day_csv(tmp_path, "510300.SH", "generic")
+    write_day_csv(tmp_path, "510300.SH", "generic")  # 写源文件（副作用）
     drv = CsvSourceDriver(root_path=str(tmp_path), kline_day_dir="kline/{type}/day")
-    raw = drv.load_kline("510300.SH", Frequency.D1, pd.Timestamp("2024-01-01", tz="Asia/Shanghai"), pd.Timestamp("2024-12-31", tz="Asia/Shanghai"))
+    raw = drv.load_kline(
+        "510300.SH",
+        Frequency.D1,
+        pd.Timestamp("2024-01-01", tz="Asia/Shanghai"),
+        pd.Timestamp("2024-12-31", tz="Asia/Shanghai"),
+    )
     norm = DataNormalizer().normalize(raw, "510300.SH")
     cal = TradeCalendar.from_dates(pd.to_datetime(norm.index.date).tolist())
     return MarketDataProvider(drv, cal, preload_mode=preload_mode)
@@ -46,7 +51,9 @@ def test_include_today_default_false(tmp_path) -> None:  # type: ignore[no-untyp
     prov = _make_provider(tmp_path)
     default = prov.history("510300.SH", ["close"], 5, as_of=asof(2024, 1, 4, 9, 30))
     assert len(default) == 2  # 不含当日
-    with_today = prov.history("510300.SH", ["close"], 5, as_of=asof(2024, 1, 4, 9, 30), include_today=True)
+    with_today = prov.history(
+        "510300.SH", ["close"], 5, as_of=asof(2024, 1, 4, 9, 30), include_today=True
+    )
     assert len(with_today) == 3  # 含当日 01-04
 
 
@@ -67,7 +74,13 @@ def test_history_last_n_only(tmp_path) -> None:  # type: ignore[no-untyped-def]
 def test_knowledge_time_narrows_visibility(tmp_path) -> None:  # type: ignore[no-untyped-def]
     prov = _make_provider(tmp_path)
     # as_of 到 01-08, 但 knowledge_time=01-04 15:00 → 只有 ≤01-04 可见
-    h = prov.history("510300.SH", ["close"], 10, as_of=asof(2024, 1, 8, 15, 0), knowledge_time=asof(2024, 1, 4, 15, 0))
+    h = prov.history(
+        "510300.SH",
+        ["close"],
+        10,
+        as_of=asof(2024, 1, 8, 15, 0),
+        knowledge_time=asof(2024, 1, 4, 15, 0),
+    )
     assert len(h) == 3
 
 
@@ -93,7 +106,10 @@ def test_numpy_fastpath_matches_dataframe(tmp_path) -> None:  # type: ignore[no-
     arr = prov.bar_array("510300.SH")
     # 全部 bar 精确比对
     for row in arr:
-        b = prov.bar_at("510300.SH", pd.Timestamp(int(row["dt"]), unit="ms", tz="UTC").tz_convert("Asia/Shanghai"))
+        b = prov.bar_at(
+            "510300.SH",
+            pd.Timestamp(int(row["dt"]), unit="ms", tz="UTC").tz_convert("Asia/Shanghai"),
+        )
         assert b is not None
         assert abs(b.close - float(row["close"])) < 1e-10
         assert abs(b.open - float(row["open"])) < 1e-10
@@ -106,7 +122,9 @@ def test_numpy_fastpath_matches_dataframe(tmp_path) -> None:  # type: ignore[no-
         dt = pd.Timestamp(target_ms, unit="ms", tz="UTC").tz_convert("Asia/Shanghai")
         got = prov.bar_at("510300.SH", dt)
         idx = int(np.searchsorted(arr["dt"], target_ms, side="left"))
-        expect = int(arr["dt"][idx]) if (idx < arr.size and int(arr["dt"][idx]) == target_ms) else None
+        expect = (
+            int(arr["dt"][idx]) if (idx < arr.size and int(arr["dt"][idx]) == target_ms) else None
+        )
         assert (got.dt if got else None) == expect
 
 
@@ -125,9 +143,17 @@ def test_preload_lazy_noop_until_access(tmp_path) -> None:  # type: ignore[no-un
 
 
 def test_provider_with_cache(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    src = write_day_csv(tmp_path, "510300.SH", "generic")
+    write_day_csv(tmp_path, "510300.SH", "generic")
     drv = CsvSourceDriver(root_path=str(tmp_path), kline_day_dir="kline/{type}/day")
-    cal = TradeCalendar.from_dates([pd.Timestamp("2024-01-02").date(), pd.Timestamp("2024-01-03").date(), pd.Timestamp("2024-01-04").date(), pd.Timestamp("2024-01-05").date(), pd.Timestamp("2024-01-08").date()])
+    cal = TradeCalendar.from_dates(
+        [
+            pd.Timestamp("2024-01-02").date(),
+            pd.Timestamp("2024-01-03").date(),
+            pd.Timestamp("2024-01-04").date(),
+            pd.Timestamp("2024-01-05").date(),
+            pd.Timestamp("2024-01-08").date(),
+        ]
+    )
     cache = DataCache(tmp_path / ".cache", enabled=True)
     prov = MarketDataProvider(drv, cal, cache=cache)
     h = prov.history("510300.SH", ["close"], 3, as_of=asof(2024, 1, 8, 15, 0))

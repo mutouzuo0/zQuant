@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:52:00
-# @update_time       : 2026/08/16 00:52:00
-# @description       : tests/data 共享 fixture：golden 目录/驱动工厂/ETF 档案/期望归一表
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:52:00
+# @update_time        : 2026/08/16 00:52:00
+# @description : tests/data 共享 fixture：golden 目录/驱动工厂/ETF 档案
 
 """tests/data 共享 fixture（T-D01..T-D07 共用）。"""
 
@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from zquant.core.types import Frequency, InstrumentType
+from zquant.core.types import InstrumentType
 from zquant.data.drivers.csv_driver import CsvSourceDriver
 from zquant.engine.instrument import etf_profile
 
@@ -45,7 +45,9 @@ def make_driver(tmp_path: Path):
     return _make
 
 
-def write_day_csv(root: Path, code: str, fmt: str, *, instrument_type: InstrumentType = InstrumentType.ETF) -> Path:
+def write_day_csv(
+    root: Path, code: str, fmt: str, *, instrument_type: InstrumentType = InstrumentType.ETF
+) -> Path:
     """把 golden 样本按指定目录布局写入 root（返回文件路径）。
 
     布局: group_by_type=true → {root}/kline/{type}/day/{code}.csv

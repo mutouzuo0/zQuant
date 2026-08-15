@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 01:12:00
-# @update_time       : 2026/08/16 01:16:00
-# @description       : T-D05：两级缓存 首写 parquet/命中免解析/失效重建/adjust 入键/clean（设计 3.7）
+# @author      : 木头左
+# @create_time        : 2026/08/16 01:12:00
+# @update_time        : 2026/08/16 01:16:00
+# @description : T-D05：两级缓存 命中/失效/adjust 入键/clean（设计 3.7）
 
 """T-D05：两级缓存（设计 3.7）。
 
@@ -49,11 +49,17 @@ def _seed_once(tmp_path: Path) -> Path:
     """写源 CSV 并完成首次加载（落盘 parquet+src sig），返回源文件路径。"""
     src = write_day_csv(tmp_path, "510300.SH", "generic")
     cache = _fresh(tmp_path)
-    df = cache.get("510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src)
+    df = cache.get(
+        "510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src
+    )
     assert len(df) == 5
     assert cache.stats.source_loads == 1  # 首写走源解析
     assert cache.stats.writes == 1
-    assert _cache_dir(tmp_path).joinpath(cache_key("510300.SH", Frequency.D1, AdjustMode.NONE) + ".parquet").is_file()
+    assert (
+        _cache_dir(tmp_path)
+        .joinpath(cache_key("510300.SH", Frequency.D1, AdjustMode.NONE) + ".parquet")
+        .is_file()
+    )
     return src
 
 
@@ -64,9 +70,13 @@ def test_first_load_writes_parquet(tmp_path) -> None:  # type: ignore[no-untyped
 def test_l1_hit_avoids_source(tmp_path) -> None:  # type: ignore[no-untyped-def]
     src = _seed_once(tmp_path)
     cache = _fresh(tmp_path)
-    cache.get("510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src)
+    cache.get(
+        "510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src
+    )
     assert cache.stats.source_loads == 0  # 新实例首次走 L2 命中（免源解析）
-    cache.get("510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src)
+    cache.get(
+        "510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src
+    )
     assert cache.stats.l1_hits == 1
     assert cache.stats.source_loads == 0  # L1 命中不新增源解析
 
@@ -75,7 +85,9 @@ def test_l2_hit_avoids_source(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """新实例（模拟二次启动）→ L2 命中, 免源解析（3.7 省 60%+）。"""
     src = _seed_once(tmp_path)
     cache2 = _fresh(tmp_path)
-    df = cache2.get("510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src)
+    df = cache2.get(
+        "510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src
+    )
     assert len(df) == 5
     assert cache2.stats.source_loads == 0
     assert cache2.stats.l2_hits == 1
@@ -86,7 +98,9 @@ def test_mtime_change_invalidates(tmp_path) -> None:  # type: ignore[no-untyped-
     src = _seed_once(tmp_path)
     os.utime(src, (src.stat().st_atime + 100, src.stat().st_mtime + 100))
     cache = _fresh(tmp_path)
-    cache.get("510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src)
+    cache.get(
+        "510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src
+    )
     assert cache.stats.source_loads == 1  # 重建（新实例无 L1, L2 已失效）
 
 
@@ -95,14 +109,18 @@ def test_size_change_invalidates(tmp_path) -> None:  # type: ignore[no-untyped-d
     with src.open("a", encoding="utf-8") as fh:  # 追加空行 → size 变化
         fh.write("\n")
     cache = _fresh(tmp_path)
-    cache.get("510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src)
+    cache.get(
+        "510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src
+    )
     assert cache.stats.source_loads == 1
 
 
 def test_unchanged_hits_without_parse(tmp_path) -> None:  # type: ignore[no-untyped-def]
     src = _seed_once(tmp_path)
     cache = _fresh(tmp_path)
-    cache.get("510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src)
+    cache.get(
+        "510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src
+    )
     assert cache.stats.source_loads == 0  # 未变 → 命中免解析
 
 
@@ -110,7 +128,13 @@ def test_adjust_in_cache_key_isolated(tmp_path) -> None:  # type: ignore[no-unty
     """adjust 进入缓存键, 不同复权口径互不污染（3.7）。"""
     src = _seed_once(tmp_path)
     cache = _fresh(tmp_path)
-    cache.get("510300.SH", Frequency.D1, AdjustMode.FORWARD, loader=_loader(_drv(tmp_path)), source_ref=src)
+    cache.get(
+        "510300.SH",
+        Frequency.D1,
+        AdjustMode.FORWARD,
+        loader=_loader(_drv(tmp_path)),
+        source_ref=src,
+    )
     assert cache.stats.source_loads == 1  # 新 adjust 键 → 独立加载
     k1 = cache_key("510300.SH", Frequency.D1, AdjustMode.NONE)
     k2 = cache_key("510300.SH", Frequency.D1, AdjustMode.FORWARD)
@@ -134,6 +158,10 @@ def test_clean_all_and_disabled(tmp_path) -> None:  # type: ignore[no-untyped-de
     # 禁用缓存 → 恒走源解析
     src = write_day_csv(tmp_path, "510300.SH", "generic")
     off = DataCache(_cache_dir(tmp_path), enabled=False)
-    off.get("510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src)
-    off.get("510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src)
+    off.get(
+        "510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src
+    )
+    off.get(
+        "510300.SH", Frequency.D1, AdjustMode.NONE, loader=_loader(_drv(tmp_path)), source_ref=src
+    )
     assert off.stats.source_loads == 2

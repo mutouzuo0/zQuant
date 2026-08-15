@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:38:00
-# @update_time       : 2026/08/16 00:38:00
-# @description       : D6 MarketDataProvider：PIT 强制时点 + BarArray numpy 二分快路径 + 预加载三模式（3.7/3.8/3.13）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:38:00
+# @update_time        : 2026/08/16 00:38:00
+# @description : D6 MarketDataProvider：PIT 时点 + BarArray 二分（3.7/3.8/3.13）
 
 """统一数据供给层（设计 3.7/3.8/3.13）——三段式管道第 ③ 段。
 
@@ -92,13 +92,17 @@ class MarketDataProvider:
     # ------------------------------------------------------------------
     # 加载（懒加载 + 预加载）
     # ------------------------------------------------------------------
-    def _load(self, code: str, frequency: Frequency = Frequency.D1, adjust: AdjustMode = AdjustMode.NONE) -> np.ndarray:
+    def _load(
+        self, code: str, frequency: Frequency = Frequency.D1, adjust: AdjustMode = AdjustMode.NONE
+    ) -> np.ndarray:
         """加载/缓存标的 → numpy 结构化数组（L1 内存常驻, 3.7）。"""
         if code in self._arrays:
             return self._arrays[code]
 
         def loader() -> pd.DataFrame:
-            raw = self._driver.load_kline(code, frequency, datetime(1970, 1, 1), datetime(2100, 1, 1), adjusted=adjust)
+            raw = self._driver.load_kline(
+                code, frequency, datetime(1970, 1, 1), datetime(2100, 1, 1), adjusted=adjust
+            )
             return self._normalizer.normalize(raw, code, fmt="auto", limit=None)
 
         if self._cache is not None:
@@ -109,7 +113,9 @@ class MarketDataProvider:
         self._arrays[code] = arr
         return arr
 
-    def preload(self, codes: list[str], start: datetime, end: datetime, frequency: Frequency = Frequency.D1) -> None:
+    def preload(
+        self, codes: list[str], start: datetime, end: datetime, frequency: Frequency = Frequency.D1
+    ) -> None:
         """预加载: 池+区间(+预热段) 一次性入内存（window 模式, 3.7）。
 
         lazy 模式为 no-op（首次访问才加载）; all/window 均按 codes 全量载入内存——
@@ -135,7 +141,9 @@ class MarketDataProvider:
         """
         cutoff_ms = int(min(q.as_of, q.knowledge_time or q.as_of).timestamp() * 1000)
         if include_today:
-            day_start = datetime(q.as_of.year, q.as_of.month, q.as_of.day, tzinfo=ZoneInfo("Asia/Shanghai"))
+            day_start = datetime(
+                q.as_of.year, q.as_of.month, q.as_of.day, tzinfo=ZoneInfo("Asia/Shanghai")
+            )
             cutoff_ms = int(day_start.timestamp() * 1000) + 86_400_000 - 1
         idx = int(np.searchsorted(arr["dt"], cutoff_ms, side="right"))
         return slice(0, idx)
@@ -153,7 +161,9 @@ class MarketDataProvider:
     ) -> pd.DataFrame:
         """可见时间窗口内最近 n 根 bar（PIT 强制, 设计 3.13）。"""
         if n < 1:
-            raise ZQuantError(f"history n 必须 >= 1，得到 {n}", stage="provider", hint="n 为回看根数")
+            raise ZQuantError(
+                f"history n 必须 >= 1，得到 {n}", stage="provider", hint="n 为回看根数"
+            )
         arr = self._load(code, frequency)
         q = PitQuery(as_of=as_of, knowledge_time=knowledge_time)
         window = arr[self._visible_slice(arr, q, include_today)]
@@ -189,14 +199,18 @@ class MarketDataProvider:
     # ------------------------------------------------------------------
     # 预留（设计 3.8, M3 实现）
     # ------------------------------------------------------------------
-    def to_frame(self, codes: list[str], fields: list[str], start: datetime, end: datetime) -> pd.DataFrame:  # pragma: no cover
+    def to_frame(
+        self, codes: list[str], fields: list[str], start: datetime, end: datetime
+    ) -> pd.DataFrame:  # pragma: no cover
         raise ZQuantError(
             "provider.to_frame 未实现（M3）",
             stage="provider",
             hint="批量宽表读取属研究引擎（M3）；回测热路径用 history()/bar_at()",
         )
 
-    def to_numpy(self, codes: list[str], fields: list[str], start: datetime, end: datetime) -> np.ndarray:  # pragma: no cover
+    def to_numpy(
+        self, codes: list[str], fields: list[str], start: datetime, end: datetime
+    ) -> np.ndarray:  # pragma: no cover
         raise ZQuantError(
             "provider.to_numpy 未实现（M3）",
             stage="provider",

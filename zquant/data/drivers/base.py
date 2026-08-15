@@ -1,14 +1,14 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:12:00
-# @update_time       : 2026/08/16 00:12:00
-# @description       : D1 数据源驱动层：SourceDriver 协议 + InstrumentRef 引用对象 + DriverRegistry 注册表（设计 3.2）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:12:00
+# @update_time        : 2026/08/16 00:12:00
+# @description : D1 数据源驱动：SourceDriver 协议 + DriverRegistry + InstrumentRef（设计 3.2）
 
 """数据源驱动层（设计 3.2）——三段式管道的第 ① 段。
 
 SourceDriver 只负责「读取与列举」，不做业务归一（归一是 DataNormalizer 的职责）。
 新增数据源 = 一个模块 + 一行 register_driver()；引擎/UI 通过配置项 data.driver 选用：
-    register_driver("local_csv", CsvSourceDriver)          # v1 实现（zquant/data/drivers/csv_driver.py）
+    register_driver("local_csv", CsvSourceDriver)          # v1 实现（drivers/csv_driver.py）
     register_driver("tushare", TushareSourceDriver)        # 预留
 v1 不实现的负载口（tick/trades/orders/depth）在协议中留签名——接口让位、实现交给 M5。
 """

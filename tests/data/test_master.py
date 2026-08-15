@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 01:22:00
-# @update_time       : 2026/08/16 01:22:00
-# @description       : T-D07：instruments 主数据 读写/upsert（新行 append/旧行更新保留 list_date）/快照（设计 3.11）
+# @author      : 木头左
+# @create_time        : 2026/08/16 01:22:00
+# @update_time        : 2026/08/16 01:22:00
+# @description : T-D07：主数据 读写/upsert/快照（设计 3.11）
 
 """T-D07：master/instruments.csv 读写、upsert 语义、快照留档、脏值清洗（设计 3.11）。"""
 
@@ -20,7 +20,9 @@ def _store(tmp_path: Path) -> MasterStore:  # type: ignore[no-untyped-def]
 
 
 def _row(code: str, **kw) -> InstrumentRow:  # type: ignore[no-untyped-def]
-    defaults = dict(name="初始名", instrument_type="etf", exchange="SH", list_date="2020-06-01", delist_date="")
+    defaults = dict(
+        name="初始名", instrument_type="etf", exchange="SH", list_date="2020-06-01", delist_date=""
+    )
     defaults.update(kw)
     return InstrumentRow(code=code, **defaults)
 
@@ -45,7 +47,9 @@ def test_upsert_update_mutable_keep_list_date(tmp_path) -> None:  # type: ignore
     """已有行: 更新可变字段, 保留首次 list_date（3.11）。"""
     store = _store(tmp_path)
     store.upsert([_row("510300.SH", list_date="2020-06-01")])
-    added, updated = store.upsert([_row("510300.SH", name="改名后", list_date="2099-01-01", industry="金融")])
+    added, updated = store.upsert(
+        [_row("510300.SH", name="改名后", list_date="2099-01-01", industry="金融")]
+    )
     assert (added, updated) == (0, 1)
     row = store.get("510300.SH")
     assert row is not None
@@ -88,7 +92,9 @@ def test_clean_field_dirty_values() -> None:
 
 def test_roundtrip_preserves_all_fields(tmp_path) -> None:  # type: ignore[no-untyped-def]
     store = _store(tmp_path)
-    store.upsert([_row("600000.SH", instrument_type="stock", underlying="", delist_date="2025-06-30")])
+    store.upsert(
+        [_row("600000.SH", instrument_type="stock", underlying="", delist_date="2025-06-30")]
+    )
     row = store.get("600000.SH")
     assert row is not None
     assert row.instrument_type == "stock"

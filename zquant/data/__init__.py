@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:44:00
-# @update_time       : 2026/08/16 00:46:00
-# @description       : 数据层统一出口：SourceDriver→DataNormalizer→MarketDataProvider 三段式管道（设计 3）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:44:00
+# @update_time        : 2026/08/16 00:46:00
+# @description : 数据层统一出口：SourceDriver→DataNormalizer→Provider 三段式管道（设计 3）
 
 """数据层统一出口（设计 3）：三段式管道 SourceDriver→DataNormalizer→MarketDataProvider。
 

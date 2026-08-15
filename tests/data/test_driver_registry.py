@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:54:00
-# @update_time       : 2026/08/16 00:54:00
-# @description       : T-D01：DriverRegistry 注册/创建/未知报错 + SourceDriver 协议签名一致（设计 3.2）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:54:00
+# @update_time        : 2026/08/16 00:54:00
+# @description : T-D01：DriverRegistry + SourceDriver 协议签名（设计 3.2）
 
 """T-D01：DriverRegistry 注册/创建/未知报错 + SourceDriver 协议签名一致（设计 3.2）。"""
 

@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:15:00
-# @update_time       : 2026/08/16 00:18:00
-# @description       : D2 CsvSourceDriver：CSV 读取/三格式嗅探/路径模板与平铺挂载（设计 3.5 / 3.12）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:15:00
+# @update_time        : 2026/08/16 00:18:00
+# @description : D2 CsvSourceDriver：三格式嗅探/路径模板/平铺挂载（设计 3.5/3.12）
 
 """CSV 数据源驱动（设计 3.5 / 3.12）——v1 唯一实现。
 
@@ -30,7 +30,7 @@ from zquant.config import LocalCsvSettings
 from zquant.core.codes import normalize_code
 from zquant.core.errors import ZQuantError
 from zquant.core.types import AdjustMode, Frequency, InstrumentType
-from zquant.data.drivers.base import InstrumentRef, SourceDriver
+from zquant.data.drivers.base import InstrumentRef
 
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
@@ -40,6 +40,7 @@ def _as_shanghai(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=_SHANGHAI)
     return dt
+
 
 # 三种格式的期望列名全集（未知格式报错时列出，AI/人工对照用）
 _EXPECTED_COLUMNS: dict[str, list[str]] = {
@@ -96,7 +97,7 @@ class CsvSourceDriver:
     name: str = "local_csv"
 
     def __init__(self, settings: LocalCsvSettings | None = None, **kwargs: Any) -> None:
-        # 兼容两种装配: create_driver('local_csv', settings=...) 或 create_driver(..., root_path=..., format=...)
+        # 兼容两种装配: create_driver(settings=...) 或 create_driver(root_path=..., format=...)
         if settings is None:
             settings = LocalCsvSettings(**kwargs)
         self.settings = settings
@@ -173,7 +174,13 @@ class CsvSourceDriver:
         if "date" in cols or "time" in cols:
             return "generic"
         expected = ", ".join(
-            sorted(set(_EXPECTED_COLUMNS["tushare"] + _EXPECTED_COLUMNS["joinquant"] + _EXPECTED_COLUMNS["generic"]))
+            sorted(
+                set(
+                    _EXPECTED_COLUMNS["tushare"]
+                    + _EXPECTED_COLUMNS["joinquant"]
+                    + _EXPECTED_COLUMNS["generic"]
+                )
+            )
         )
         raise ZQuantError(
             f"无法识别的 CSV 格式（列: {sorted(cols)}）",

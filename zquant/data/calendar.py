@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:26:00
-# @update_time       : 2026/08/16 00:26:00
-# @description       : D4 交易日历：文件读取/缺失推导回写/区间+预热展开（设计 3.12-④）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:26:00
+# @update_time        : 2026/08/16 00:26:00
+# @description : D4 交易日历：文件/推导回写/预热展开（设计 3.12-④）
 
 """交易日历（设计 3.12-④）——SSE/SZSE 交易日的唯一日历源。
 
@@ -35,7 +35,7 @@ class TradeCalendar:
     # 构造
     # ------------------------------------------------------------------
     @classmethod
-    def from_csv(cls, path: Path | str) -> "TradeCalendar":
+    def from_csv(cls, path: Path | str) -> TradeCalendar:
         """从 trade_days.csv 读取（列名自动兼容 date/cal_date/YYYYMMDD）。"""
         p = os.fspath(Path(path))
         try:
@@ -61,7 +61,7 @@ class TradeCalendar:
         return cls([d for d in days.tolist() if d is not None])
 
     @classmethod
-    def from_dates(cls, dates: list[date | datetime]) -> "TradeCalendar":
+    def from_dates(cls, dates: list[date | datetime]) -> TradeCalendar:
         """从任意日期列表构造（datetime 取 .date()）。"""
         return cls([d.date() if isinstance(d, datetime) else d for d in dates])
 
@@ -69,7 +69,7 @@ class TradeCalendar:
     # 推导与回写（3.12-④: 缺失时由数据日并集推导）
     # ------------------------------------------------------------------
     @classmethod
-    def derive(cls, pool_dates: list[date | datetime]) -> "TradeCalendar":
+    def derive(cls, pool_dates: list[date | datetime]) -> TradeCalendar:
         """由已加载股票池的数据日并集推导交易日历（去重升序）。"""
         if not pool_dates:
             raise ZQuantError(
@@ -125,13 +125,15 @@ class TradeCalendar:
         return self._days[lo:hi]
 
     def expand_warmup(self, start: date | datetime, warmup_bars: int) -> list[date]:
-        """返回 [start-warmup_bars 个交易日, start) 的预热区间交易日（不含起始日, 支持 MA250 等回看）。"""
+        """返回 [start-warmup_bars 个交易日, start) 的预热区间交易日（不含起始日）。"""
         if warmup_bars < 0:
             raise ZQuantError(f"warmup_bars 不能为负，得到 {warmup_bars}", stage="calendar")
         start_d = start.date() if isinstance(start, datetime) else start
         from bisect import bisect_left
 
-        hi = bisect_left(self._days, start_d)  # 严格早于起始日（起始日 bar 属于回测第 1 根, 不属预热）
+        hi = bisect_left(
+            self._days, start_d
+        )  # 严格早于起始日（起始日 bar 属于回测第 1 根, 不属预热）
         lo = max(0, hi - warmup_bars)
         return self._days[lo:hi]
 
@@ -154,7 +156,9 @@ class TradeCalendar:
     def assert_in_range(self, day: date) -> None:
         """单点越界报错（预览期防『无数据回测』闷报, 设计 3.12-④）。"""
         if not self._set:
-            raise ZQuantError("交易日历为空", stage="calendar", hint="需先推导或提供 trade_days.csv")
+            raise ZQuantError(
+                "交易日历为空", stage="calendar", hint="需先推导或提供 trade_days.csv"
+            )
         if not (self._days[0] <= day <= self._days[-1]):
             raise ZQuantError(
                 f"日期 {day} 超出交易日历范围 [{self._days[0]}, {self._days[-1]}]",

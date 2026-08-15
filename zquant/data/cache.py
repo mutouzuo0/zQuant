@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:32:00
-# @update_time       : 2026/08/16 00:34:00
-# @description       : D5 DataCache 两级缓存：L1 内存 DataFrame + L2 parquet（mtime/size 失效重建，设计 3.7）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:32:00
+# @update_time        : 2026/08/16 00:34:00
+# @description : D5 两级缓存：L1 内存 + L2 parquet（mtime/size 失效重建，设计 3.7）
 
 """两级缓存（设计 3.7）——供给层性能核心；数据正确性不依赖它（只是加速）。
 
@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 import pandas as pd
 

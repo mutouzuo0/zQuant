@@ -1,17 +1,17 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:42:00
-# @update_time       : 2026/08/16 00:42:00
-# @description       : D7 InstrumentsMaster 主数据：master/instruments.csv 读写/upsert/快照（设计 3.11）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:42:00
+# @update_time        : 2026/08/16 00:42:00
+# @description : D7 主数据：instruments.csv 读写/upsert/快照（设计 3.11）
 
 """证券基础信息主数据（设计 3.11）——「基本信息」与行情的唯一对应关系。
 
-  存储: data/master/instruments.csv（单文件, 主键=code, 常驻增量更新）
-  快照: data/master/snapshots/instruments_{YYYYMMDD}.csv（每次刷新留档, 可回溯）
-  upsert 语义（3.11）:
-    已有行 → 更新可变字段（name/delist_date/industry…）, 保留首次 list_date
-    新行   → append（新上市标的）
-  幂等: 同日重复刷新零变化; 刷新后调用方失效重建内存缓存。
+存储: data/master/instruments.csv（单文件, 主键=code, 常驻增量更新）
+快照: data/master/snapshots/instruments_{YYYYMMDD}.csv（每次刷新留档, 可回溯）
+upsert 语义（3.11）:
+  已有行 → 更新可变字段（name/delist_date/industry…）, 保留首次 list_date
+  新行   → append（新上市标的）
+幂等: 同日重复刷新零变化; 刷新后调用方失效重建内存缓存。
 """
 
 from __future__ import annotations
@@ -22,8 +22,6 @@ from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
-
-from zquant.core.errors import ZQuantError
 
 # 字段全集（设计 3.11; 顺序即 CSV 列序，跨版本稳定）
 MASTER_FIELDS: tuple[str, ...] = (
@@ -75,7 +73,9 @@ class MasterStore:
 
     def __init__(self, path: Path | str, snapshot_dir: Path | str | None = None) -> None:
         self._path = Path(path)
-        self._snapshot_dir = Path(snapshot_dir) if snapshot_dir is not None else self._path.parent / "snapshots"
+        self._snapshot_dir = (
+            Path(snapshot_dir) if snapshot_dir is not None else self._path.parent / "snapshots"
+        )
 
     # ------------------------------------------------------------------
     # 读取
@@ -153,7 +153,9 @@ class MasterStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".csv.tmp")
         try:
-            df.reset_index().rename(columns={"index": "code"}).to_csv(tmp, index=False, encoding="utf-8")
+            df.reset_index().rename(columns={"index": "code"}).to_csv(
+                tmp, index=False, encoding="utf-8"
+            )
             os.replace(tmp, self._path)
         finally:
             tmp.unlink(missing_ok=True)

@@ -1,15 +1,16 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:22:00
-# @update_time       : 2026/08/16 00:24:00
-# @description       : D3 DataNormalizer：三格式→内部统一 K 线（列映射/时间戳 15:00 化/pre_close/停牌/涨跌停）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:22:00
+# @update_time        : 2026/08/16 00:24:00
+# @description : D3 DataNormalizer：三格式→内部统一 K 线（设计 3.3）
 
 """DataNormalizer（设计 3.3）——三段式管道的第 ② 段：把来源原始 CSV 洗成统一内部格式。
 
 输入: SourceDriver.load_kline() 的输出（原始列名 + 已解析的 UTC+8 日期列）。
 输出: 内部统一 K 线 DataFrame（全框架唯一认此格式）:
     index   = dt（UTC+8 毫秒时间戳; 日线=交易日 15:00 收盘时刻, 分钟=bar 结束时刻）
-    columns = KLINE_COLUMNS: open/high/low/close/volume/amount/pre_close/suspended/limit_up/limit_down
+    columns = KLINE_COLUMNS（open/high/low/close/volume/amount/pre_close/
+             suspended/limit_up/limit_down）
 
 规则:
     时间戳归一   日线 → 当日 15:00（设计 3.3；从源头杜绝当日未来数据）
@@ -70,7 +71,9 @@ class DataNormalizer:
         if self.frequency is Frequency.D1:
             wall = dt.tz_localize(None) if dt.tzinfo is not None else dt
             day = wall.floor("D")
-            return (day + pd.Timedelta(hours=DAILY_BAR_TIME.hour, minutes=DAILY_BAR_TIME.minute)).tz_localize("Asia/Shanghai")
+            return (
+                day + pd.Timedelta(hours=DAILY_BAR_TIME.hour, minutes=DAILY_BAR_TIME.minute)
+            ).tz_localize("Asia/Shanghai")
         return dt
 
     def normalize(
@@ -90,7 +93,9 @@ class DataNormalizer:
             limit  涨跌停价提供者（InstrumentProfile；缺省则 limit_up/down 置 NaN）
         """
         if df is None or df.empty:
-            raise ZQuantError(f"归一输入为空: {code}", stage="normalizer", hint="检查 K 线 CSV 数据行与区间裁剪")
+            raise ZQuantError(
+                f"归一输入为空: {code}", stage="normalizer", hint="检查 K 线 CSV 数据行与区间裁剪"
+            )
 
         lower = {c.lower(): c for c in df.columns}
         if fmt == "auto":
@@ -131,7 +136,7 @@ class DataNormalizer:
         # paused 作为临时列随行保留（参与后续去重/排序, 再移除）
         src_paused = work.get("paused")
         if src_paused is not None:
-            out["_paused"] = (pd.to_numeric(src_paused, errors="coerce").fillna(0).to_numpy() > 0)
+            out["_paused"] = pd.to_numeric(src_paused, errors="coerce").fillna(0).to_numpy() > 0
         out = out[~out.index.isna()]
 
         # 4) 时间戳归一 + 排序去重（保留最新, 纪律 3.9/8.8）
@@ -142,7 +147,9 @@ class DataNormalizer:
         out["pre_close"] = out["close"].shift(1)
 
         # 6) suspended（来源 paused 标记或 volume==0, 设计 3.3）
-        paused = out.pop("_paused") if "_paused" in out.columns else pd.Series(False, index=out.index)
+        paused = (
+            out.pop("_paused") if "_paused" in out.columns else pd.Series(False, index=out.index)
+        )
         out["suspended"] = (paused | (out["volume"].replace(np.nan, 0.0) <= 0)).astype("int64")
 
         # 6b) 缺失值规则: OHLC NaN → 前向沿用; 停牌日(量零/paused) 价格为 0 或 NaN → 用前收

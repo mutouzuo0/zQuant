@@ -1,8 +1,8 @@
 # coding:utf-8
-# @author            : 木头左
-# @create_time       : 2026/08/16 00:56:00
-# @update_time       : 2026/08/16 00:56:00
-# @description       : T-D02：三格式嗅探/显式 format/未知报错/GBK + T-D02c：khQuant 平铺挂载（3.5/3.12）
+# @author      : 木头左
+# @create_time        : 2026/08/16 00:56:00
+# @update_time        : 2026/08/16 00:56:00
+# @description : T-D02/T-D02c：三格式嗅探/显式格式/GBK/平铺挂载（3.5/3.12）
 
 """T-D02/T-D02c：三格式嗅探 + 显式 format 跳过 + 未知格式报错列期望列 + GBK + khQuant 平铺挂载。"""
 
@@ -46,7 +46,16 @@ def test_load_tushare_and_range_cut(make_driver, tmp_path) -> None:  # type: ign
     write_day_csv(tmp_path, "510300.SH", "tushare")
     drv = make_driver(tmp_path)
     df = drv.load_kline("510300.SH", Frequency.D1, datetime(2024, 1, 3), datetime(2024, 1, 5))
-    assert list(df.columns) == ["ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"]
+    assert list(df.columns) == [
+        "ts_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "vol",
+        "amount",
+    ]
     assert len(df) == 3  # 01-03/04/05（01-02、01-08 被区间裁剪）
     assert str(df["trade_date"].iloc[0]) == "2024-01-03 00:00:00+08:00"
 
