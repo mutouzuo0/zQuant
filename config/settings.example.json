@@ -1,0 +1,60 @@
+{
+  "data": {
+    "driver": "local_csv",
+    "local_csv": {
+      "root_path": "./data",
+      "kline_day_dir": "kline/{type}/day",
+      "kline_minute_dir": "kline/{type}/minute",
+      "master_dir": "master",
+      "factor_dir": "factor/adj_factor/{type}",
+      "corporate_actions_dir": "corporate_actions/{type}",
+      "calendar_dir": "calendars",
+      "constituents_dir": "index_constituents",
+      "raw_dir": "raw",
+      "group_by_type": true,
+      "file_pattern": "{code}.csv",
+      "minute_shard": "{code}/{YYYY-MM}.parquet",
+      "keep_raw": false,
+      "encoding": "utf-8-sig",
+      "format": "auto",
+      "adjust": "none"
+    },
+    "tushare": {
+      "max_retry": 3
+    },
+    "download": {
+      "rate_limit_per_min": 60,
+      "akshare_min_interval_sec": 1.0,
+      "batch_days": 365,
+      "dedup_keep": "latest"
+    },
+    "cache": {
+      "enabled": true,
+      "parquet_dir": ".cache/parquet",
+      "preload_mode": "window",
+      "warmup_bars_default": 120
+    }
+  },
+  "database": {
+    "url": "sqlite:///./zquant.db",
+    "echo": false,
+    "batch_size": 500,
+    "batch_flush_interval_ms": 500,
+    "buffer_max_rows": 50000
+  },
+  "engine": {
+    "fill_price": "next_open",
+    "slippage": {
+      "type": "ratio",
+      "value": 0.001
+    },
+    "default_fees": {
+      "commission_rate": 0.0001,
+      "min_commission": 5.0,
+      "stamp_tax_rate": 0.0005,
+      "transfer_fee_rate": 0.00001
+    },
+    "max_participation": 0.25,
+    "random_seed": 42
+  }
+}

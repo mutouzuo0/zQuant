@@ -1,0 +1,115 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zquant"
+version = "0.1.0"
+description = "zQuant: local-first, event-driven quantitative backtesting framework (JoinQuant/PTrade compatible, CSV-based)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "zQuant" }]
+keywords = ["quant", "backtest", "joinquant", "ptrade", "csv"]
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.26",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pydantic>=2.5",
+    "typer>=0.9",
+    "rich>=13.0",
+    "pyarrow>=14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.8",
+    "import-linter>=2.0",
+    "pre-commit>=3.6",
+]
+download = [
+    "akshare>=1.12",
+    "tushare>=1.4",
+]
+
+[project.scripts]
+zquant = "zquant.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["zquant*"]
+
+# ============================================================
+# pytest
+# ============================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not slow and not network and not m5_deferred'"
+markers = [
+    "slow: slow tests (performance budget / real-data end-to-end)",
+    "network: requires internet access (akshare/tushare)",
+    "m5_deferred: minute-level semantics deferred to milestone M5",
+]
+
+# ============================================================
+# ruff (lint + format)
+# ============================================================
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["zquant"]
+
+# ============================================================
+# mypy (宽松档)
+# ============================================================
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+# ============================================================
+# import-linter 依赖契约（设计 4.3 / 10.5，CI 强制）
+#   适配器不得 import 引擎内部（撮合/记账/绩效），协议对象除外
+#   数据层不得反向依赖引擎层
+# ============================================================
+[tool.importlinter]
+root_packages = ["zquant"]
+
+[[tool.importlinter.contracts]]
+name = "Adapters must not import engine internals (broker/account/metrics)"
+type = "forbidden"
+source_modules = ["zquant.adapters"]
+forbidden_modules = [
+    "zquant.engine.broker",
+    "zquant.engine.account",
+    "zquant.engine.metrics",
+]
+
+[[tool.importlinter.contracts]]
+name = "Data layer must not import engine"
+type = "forbidden"
+source_modules = ["zquant.data"]
+forbidden_modules = ["zquant.engine"]
+
+[[tool.importlinter.contracts]]
+name = "Research/ML must not import server"
+type = "forbidden"
+source_modules = ["zquant.research", "zquant.ml"]
+forbidden_modules = ["zquant.server"]

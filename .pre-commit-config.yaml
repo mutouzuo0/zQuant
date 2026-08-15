@@ -1,0 +1,9 @@
+# 可选：安装为 git hook（pre-commit install）。
+# 本项目纪律为"测试通过才提交"，hook 未强制安装，门禁命令见 AGENTS.md。
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
