@@ -185,8 +185,7 @@ class GoldenJoinQuantBridge:
         """每交易日 15:00: 刷新账户视图 → 调度任务 → handle_data（4.6 顺序）。"""
         self._now = self._current_bar_dt()
         self.adapter._ctx.account = self._account_view()
-        self.adapter._ctx.current_dt = self._now
-        self.adapter._ctx.timestamp = self._now
+        self.adapter._refresh(self._now)  # 刷新 context.portfolio（4.4, g11 持仓可见）
         self.adapter._run_scheduled(self._now)
         if self.adapter._handle_data is not None:
             self.adapter._handle_data(self.adapter._ctx, self._data_map())
@@ -195,14 +194,14 @@ class GoldenJoinQuantBridge:
         self._now = self._current_bar_dt()
         if self.adapter._before_trading is not None:
             self.adapter._ctx.account = self._account_view()
-            self.adapter._ctx.current_dt = self._now
+            self.adapter._refresh(self._now)
             self.adapter._before_trading(self.adapter._ctx, self._data_map())
 
     def _drive_after(self) -> None:
         self._now = self._current_bar_dt()
         if self.adapter._after_trading is not None:
             self.adapter._ctx.account = self._account_view()
-            self.adapter._ctx.current_dt = self._now
+            self.adapter._refresh(self._now)
             self.adapter._after_trading(self.adapter._ctx)
 
 

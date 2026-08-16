@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
+from zquant.adapters.shared.code_style import denormalize_code
+
 
 @dataclass(frozen=True)
 class UniformPosition:
@@ -113,7 +115,12 @@ def jq_position_view(pos: UniformPosition) -> SimpleNamespace:
 
 
 def jq_portfolio_view(pf: UniformPortfolio) -> SimpleNamespace:
-    """聚宽 Portfolio 投影（starting_cash/available_cash/positions_value/total_assets/…）。"""
+    """聚宽 Portfolio 投影（starting_cash/available_cash/positions_value/total_assets/…）。
+
+    positions 键 = 平台外部码（600156.XSHG, 4.4 投影表）; `positions` 与官方一致
+    为长仓字典（A 股日线无融券, short 恒空, 4.6 已知近似）。
+    """
+    long_positions = {denormalize_code(c): jq_position_view(p) for c, p in pf.positions.items()}
     return SimpleNamespace(
         starting_cash=pf.starting_cash,
         available_cash=pf.available_cash,
@@ -121,7 +128,8 @@ def jq_portfolio_view(pf: UniformPortfolio) -> SimpleNamespace:
         total_assets=pf.total_value,
         total_value=pf.total_value,
         market_cap=pf.total_value,  # 日线近似（无盘口股本, 4.6 已知近似）
-        long_positions={c: p for c, p in pf.positions.items()},
+        positions=long_positions,  # 官方入口 context.portfolio.positions[security]
+        long_positions=long_positions,
         short_positions={},  # A 股日线无融券（已知近似）
         daily_returns=0.0,  # 日收益由引擎指标给出, 4.6 近似
     )
