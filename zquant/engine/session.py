@@ -1,7 +1,7 @@
 # coding:utf-8
 # @author      : 木头左
 # @create_time        : 2026/08/16 06:48:31
-# @update_time        : 2026/08/16 09:40:00
+# @update_time        : 2026/08/16 10:20:00
 # @description : F5/I1 BacktestSession：生产化会话 + 任务配置解析（3.6/5.1）; W0 emit + K4 视图
 
 """BacktestSession（设计 5.1 SessionPort 的生产实现，阶段 I 提炼自 golden DailyDriver）。
@@ -24,7 +24,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from types import SimpleNamespace
 from typing import Any, cast
@@ -170,37 +170,7 @@ class BacktestSession:
         if result_store is not None and not result_store.run_id:
             result_store.run_id = self.run_id
 
-        # 平台适配器（native; M2 joinquant/ptrade 复用骨架）
-        self._adapter: Any = cast(Any, create_adapter(task.strategy.type))
-        self._adapter.load(str(task.strategy.file))
-        self._adapter.setup(AccountView())
-        # 注入策略侧 API（native v1: history / timestamp / account）
-        self._adapter._ctx.history = self._strategy_history  # type: ignore[attr-defined]
-        self._adapter._ctx.timestamp = datetime(2000, 1, 1, 15, 0, tzinfo=_SH)
-        # 生命周期: 首次驱动前调用策略 initialize（4.2 注入语义）
-        init = getattr(self._adapter, "_initialize", None)
-        if init is not None:
-            init(self._adapter._ctx)
-
-        # 撮合三件套（5.3.3 五模型; 买卖侧代理滑点由 FillModel 承担, SlippageModel=0）
-        fee_params = settings_fees or FeeParams()
-        self._fee_params = fee_params
-        self._broker = BrokerSim(
-            models=MatchingModels(
-                fill=FillModel(basis=PriceBasis.NEXT_OPEN, half_spread=0.001),
-                slippage=SlippageModel(ratio=0.0),
-                fee=FeeModel(),
-                liquidity=LiquidityModel(max_participation=max_participation),
-            )
-        )
-        self._account = Account(
-            run_id=self.run_id,
-            initial_cash=task.backtest.initial_capital,
-            available_cash=task.backtest.initial_capital,
-        )
-        self._order_book: Any = None  # 惰性（order_book 属性首次访问创建, 引擎装配后可用）
-
-        # 运行态
+        # 运行态（先于适配器装配: ctx 注入引用以下列表/状态, M2 平台适配器依赖）
         self._universe: list[str] = normalize_universe(task.universe)
         self._profiles: dict[str, InstrumentProfile] = {}
         self._last_close_px: dict[str, float] = {}
@@ -220,7 +190,65 @@ class BacktestSession:
         self._order_seq = 0
         self.status = "completed_exact"
         self._frozen_by_order: dict[str, float] = {}  # order_id → 账户冻结额（买入, 5.3.4）
+        self._pending_sync: list[tuple[OrderRequest, Order | None]] = []  # M2: 受理后回执对齐
         self._benchmark_close: dict[str, float] = {}
+        self._order_book: Any = None  # 惰性（order_book 属性首次访问创建, 引擎装配后可用）
+
+        # 撮合三件套（5.3.3 五模型; 先于适配器——initialize 期 set_* 族即可生效, 4.7）
+        fee_params = settings_fees or FeeParams()
+        self._fee_params = fee_params
+        self._broker = BrokerSim(
+            models=MatchingModels(
+                fill=FillModel(basis=PriceBasis.NEXT_OPEN, half_spread=0.001),
+                slippage=SlippageModel(ratio=0.0),
+                fee=FeeModel(),
+                liquidity=LiquidityModel(max_participation=max_participation),
+            )
+        )
+        self._account = Account(
+            run_id=self.run_id,
+            initial_cash=task.backtest.initial_capital,
+            available_cash=task.backtest.initial_capital,
+        )
+
+        # 平台适配器（native; M2 joinquant/ptrade 复用骨架）
+        self._adapter: Any = cast(Any, create_adapter(task.strategy.type))
+        self._adapter.load(str(task.strategy.file))
+        self._adapter.setup(AccountView())
+        # 注入策略侧 API（native v1: history / timestamp / account）
+        self._adapter._ctx.history = self._strategy_history  # type: ignore[attr-defined]
+        self._adapter._ctx.timestamp = datetime(2000, 1, 1, 15, 0, tzinfo=_SH)
+        # M2-K/L/N: 平台适配器注入面（provider PIT/事件/任务/日历/账户刷新/撮合设置/订单视图）
+        ctx = self._adapter._ctx  # type: ignore[attr-defined]
+        ctx.provider = self._provider
+        ctx.emit = self.emit
+        ctx.task = self.task
+        ctx.calendar = self._calendar
+        ctx.current_dt = lambda: self._current_dt
+        ctx.now_fn = lambda: self._current_dt  # M2: 适配器取当前回测时刻（动态, 每 bar 更新）
+        ctx.phase = lambda: self._phase
+        ctx.universe_fn = self.universe
+        ctx.available_cash_fn = self.available_cash
+        ctx.profile_of = self._profile
+        ctx.order_book = self.order_book  # 待撮合账本（订单查询族只读视图, 5.3.1）
+        ctx.orders = self._orders  # 引擎订单列表（live 状态, 4.7 get_order 族）
+        ctx.fills = self._fills  # 成交列表（get_trades, 4.7）
+        ctx.set_universe_fn = self._set_universe
+        ctx.set_liquidity_fn = self._set_liquidity_participation
+        ctx.set_fees_fn = self._set_fees
+        ctx.set_slippage_fn = self._set_slippage
+        ctx.record_event_fn = self._record_event
+        ctx.run_id = self.run_id
+        ctx.task_name = task.task_name
+        # 生命周期: 首次驱动前调用策略 initialize（4.2 注入语义;
+        # M2 平台适配器优先走 run_initialize（带调度注册窗口/接线）, native 走 _initialize）
+        runner = getattr(self._adapter, "run_initialize", None)
+        if runner is not None:
+            runner(ctx)
+        else:
+            init = getattr(self._adapter, "_initialize", None)
+            if init is not None:
+                init(self._adapter._ctx)
 
         # 公司行为（task.backtest.corp_actions, 3.14）
         self._corp_actions: list[CorporateAction] = [
@@ -263,14 +291,24 @@ class BacktestSession:
         )
 
     def _init_initial_positions(self) -> None:
-        """初始持仓: 首日估值价 = 首个交易日的 raw close（5.5）。"""
+        """初始持仓: 首日估值价 = 首个交易日的 raw close（5.5）。
+
+        M2-L5: 适配器 initialize 中 set_yesterday_position 暂存的底仓在此融合
+        （pending 格式 {code: (qty, cost_basis|None)}, 复用官方三字段语义）。
+        """
+        pending = getattr(self._adapter, "pending_initial_positions", None)
+        merged: dict[str, tuple[float, float | None]] = {
+            code: (float(qty), None) for code, qty in self.task.backtest.initial_positions.items()
+        }
+        for code, (qty, cost) in (pending or {}).items():
+            merged[code] = (qty, cost)  # 适配器底仓优先（策略显式设置）
         days = self.trading_days()
         day0 = days[0] if days else datetime(2000, 1, 1, 15, 0, tzinfo=_SH)
-        for code, qty in self.task.backtest.initial_positions.items():
+        for code, (qty, cost) in sorted(merged.items()):
             if not qty:
                 continue
             bar = self._provider.bar_at(code, _at(day0, 15, 0))
-            px = bar.close if bar is not None else 0.0
+            px = cost if cost and cost > 0 else (bar.close if bar is not None else 0.0)
             self._account.positions[code] = Position(
                 code=code, total_qty=float(qty), avg_cost=px, last_price=px
             )
@@ -408,11 +446,16 @@ class BacktestSession:
         def _dir_key(d: Any) -> str:
             return d.value if isinstance(d, OrderDirection) else str(d)
 
+        # M2-L/N: 平台回执 id ↔ 引擎 order_id 对齐（受理完成后由 orders_to_book 触发,
+        # 保证同 bar 撤单在账本受理之后执行, 5.3.1）
+        pairs: list[tuple[OrderRequest, Order | None]] = []
         orders: list[Order] = []
         for req in sorted(requests, key=lambda r: (r.created_at, r.code, _dir_key(r.direction))):
             order = self._translate(req)
+            pairs.append((req, order))
             if order is not None:
                 orders.append(order)
+        self._pending_sync = pairs
         return orders
 
     def run_on_close(self, dt: datetime) -> None:
@@ -496,6 +539,13 @@ class BacktestSession:
                     est = self.order_book.frozen_of(order.order_id)
                     self._account.freeze_cash(est)
                     self._frozen_by_order[order.order_id] = est
+        # 受理完成后对齐平台回执（同 bar 撤单此刻可执行, 5.3.1/4.7）
+        pairs = getattr(self, "_pending_sync", None)
+        if pairs:
+            sync = getattr(self._adapter, "sync_orders", None)
+            if sync is not None:
+                sync(pairs)
+            self._pending_sync = []
 
     def universe(self) -> list[str]:
         return list(self._universe)
@@ -505,6 +555,55 @@ class BacktestSession:
 
     def profile_of(self, code: str) -> Any:
         return self._profile(code)
+
+    # ------------------------------------------------------------------
+    # M2-L/N: 平台 set 族落点（set_universe / set_volume_ratio, 4.6/4.7）
+    # ------------------------------------------------------------------
+    def _set_universe(self, codes: list[str]) -> None:
+        """set_universe 动态股票池: 归一 + 去重; 引擎逐日按新池撮合（懒加载由 provider 承担）。"""
+        self._universe = normalize_universe(codes)
+
+    def _set_liquidity_participation(self, ratio: float) -> None:
+        """set_volume_ratio → LiquidityModel 参与率（5.3.3; 默认 0.25 对齐官方）。"""
+        if not 0.0 < ratio <= 1.0:
+            raise ZQuantError(f"参与率必须 (0,1]，得到 {ratio}", stage="session")
+        self._broker.models = replace(
+            self._broker.models,
+            liquidity=self._broker.models.liquidity.with_participation(ratio),
+        )
+
+    # ------------------------------------------------------------------
+    # M2-L5: 平台 set 族运行时设置（费率/滑点/底仓, 4.7 设置族）
+    # ------------------------------------------------------------------
+    def _set_fees(
+        self,
+        *,
+        commission_rate: float | None = None,
+        min_commission: float | None = None,
+        stamp_tax_rate: float | None = None,
+        transfer_fee_rate: float | None = None,
+    ) -> None:
+        """set_commission 落点: 更新任务费率 + 清空品种档案缓存（新 profile 按新费率生成）。"""
+        if commission_rate is not None:
+            self.task.fees.commission_rate = commission_rate
+        if min_commission is not None:
+            self.task.fees.min_commission = min_commission
+        if stamp_tax_rate is not None:
+            self.task.fees.stamp_tax_rate = stamp_tax_rate
+        if transfer_fee_rate is not None:
+            self.task.fees.transfer_fee_rate = transfer_fee_rate
+        self._profiles.clear()  # 缓存失效, _profile 按新 task.fees 重建
+
+    def _set_slippage(self, *, ratio: float | None = None, fixed: float | None = None) -> None:
+        """set_slippage/set_fixed_slippage 落点: 替换 SlippageModel（5.3.3）。"""
+        cur = self._broker.models.slippage
+        self._broker.models = replace(
+            self._broker.models,
+            slippage=SlippageModel(
+                ratio=cur.ratio if ratio is None else ratio,
+                fixed=cur.fixed if fixed is None else fixed,
+            ),
+        )
 
     def record_event(self, ev: Any) -> None:
         """订单事件入流水; 终态（fill/expire/cancel）释放账户冻结（5.3.4）。"""
@@ -524,6 +623,10 @@ class BacktestSession:
         """结束回测: 返回结果字典（runner 导出/入库用, 9.1）。"""
         if self._result_store is not None:
             self._result_store.finalize()
+        # M2-L/N: 适配器语义降级并入 run 记录（4.9/5.2: run 记录降级项）
+        adapter_degr = list(getattr(self._adapter, "degradations", None) or [])
+        if adapter_degr and self.status == "completed_exact":
+            self.status = "completed_degraded"
         return {
             "run_id": self.run_id,
             "navs": list(self._navs),
@@ -532,7 +635,7 @@ class BacktestSession:
             "events": [self._event_payload(e) for e in self._events],
             "fees": dict(self._fees),
             "status": self.status,
-            "degradations": list(self._degradations),
+            "degradations": list(self._degradations) + adapter_degr,
         }
 
     # ------------------------------------------------------------------

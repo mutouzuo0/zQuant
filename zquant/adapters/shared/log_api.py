@@ -26,8 +26,14 @@ def _level_fn(
 ) -> Callable[..., None]:
     def _log(message: Any, *args: Any, **kw: Any) -> None:
         text = message if isinstance(message, str) else str(message)
-        if args:  # 兼容 `log.info("x=%s", 1)` 的 printf 风格
-            text = text % args
+        if args:  # printf 风格（含 %s）或空格拼接（多参数日志兼容, 官方两种用法都有）
+            if "%" in text:
+                try:
+                    text = text % args
+                except (TypeError, ValueError):
+                    text = " ".join([text] + [str(a) for a in args])
+            else:
+                text = " ".join([text] + [str(a) for a in args])
         payload: dict[str, Any] = {"level": level, "message": text}
         if current_dt is not None:
             try:

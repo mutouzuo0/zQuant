@@ -30,6 +30,17 @@ def _at15(dt: datetime | date) -> datetime:
     return datetime(dt.year, dt.month, dt.day, 15, 0)
 
 
+def _ts(dt: datetime | date) -> Any:
+    """→ Asia/Shanghai 时区 Timestamp（provider.history 索引口径, 3.13）。"""
+    import pandas as pd
+
+    if isinstance(dt, datetime):
+        naive = dt.replace(tzinfo=None)
+    else:
+        naive = datetime(dt.year, dt.month, dt.day)
+    return pd.Timestamp(naive, tz="Asia/Shanghai")
+
+
 class DataApiCore:
     """PIT 正确数据查询核心（会话注入 provider + 当前时点/阶段）。"""
 
@@ -119,16 +130,13 @@ class DataApiCore:
             include_today=include_today,
             as_of=end_date,
         )
-        if df is None or df.empty:
+        if df is None or getattr(df, "empty", True):
             return df
+        index = df.index
         if start_date is not None:
-            start_ms = int(
-                datetime(start_date.year, start_date.month, start_date.day).timestamp() * 1000
-            )
-            df = df[df.index >= start_ms]
+            df = df[index >= _ts(start_date)]
         if end_date is not None:
-            end_ms = int(_at15(end_date).timestamp() * 1000)
-            df = df[df.index <= end_ms]
+            df = df[index <= _ts(_at15(end_date))]
         return df
 
     # ------------------------------------------------------------------

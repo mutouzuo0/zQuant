@@ -1,7 +1,7 @@
 # coding:utf-8
 # @author      : 木头左
 # @create_time        : 2026/08/16 02:52:00
-# @update_time        : 2026/08/16 02:52:00
+# @update_time        : 2026/08/16 10:20:00
 # @description : F6 NativeAdapter：原生策略适配器（StrategyAdapter 协议首个实现, 设计 4.2/4.5）
 
 """NativeAdapter（设计 4.2）——StrategyAdapter 协议首个实现。
@@ -74,6 +74,10 @@ class NativeAdapter:
     def take_orders(self) -> list[OrderRequest]:
         out, self._orders = self._orders, []
         return out
+
+    def sync_orders(self, pairs: list[tuple[OrderRequest, Any]]) -> None:
+        """M2 协议扩展: native 无平台回执, 忽略（模拟回执对齐仅平台适配器需要, 4.7）。"""
+        return
 
     def finalize(self) -> None:
         pass
