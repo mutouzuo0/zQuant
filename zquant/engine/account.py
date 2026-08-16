@@ -1,6 +1,7 @@
 # coding:utf-8
 # @author      : 木头左
-# @date        : 2026/08/15 22:30:00
+# @create_time        : 2026/08/15 22:30:00
+# @update_time        : 2026/08/16 06:52:00
 # @description : Account 账户：现金四分类(available/receivable/frozen/total)+持仓(avg_cost 轨迹)
 
 """Account 账户与估值（设计 5.5 / 4.4 / 3.14）。
@@ -127,12 +128,16 @@ class Account:
         self.assert_invariant()
 
     def release_frozen_cash(self, amount: float) -> None:
-        if amount < 0 or amount > self.frozen_cash:
+        # 容差 1e-9: 多单并发冻结时单笔 est 与累计 frozen_cash 的浮点舍入差（宁钳位不误炸）
+        if amount < 0 or amount > self.frozen_cash + 1e-9:
             raise ZQuantError(
                 f"释放冻结金额非法: {amount}（已冻结 {self.frozen_cash}）", stage="account"
             )
-        self.frozen_cash -= amount
-        self.available_cash += amount
+        released = min(amount, self.frozen_cash)
+        self.frozen_cash -= released
+        self.available_cash += released
+        if self.frozen_cash < 1e-9:
+            self.frozen_cash = 0.0  # 钳位: 避免 -1e-10 级负冻结（恒等式容差内）
         self.assert_invariant()
 
     # ---------------- 成交记账（3.14：一律 raw_price）----------------

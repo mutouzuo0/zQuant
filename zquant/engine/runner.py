@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -57,6 +57,7 @@ class RunResult:
     db: Engine | None = None
     status: str = "completed_exact"
     error_log: str | None = None
+    timing: dict[str, float] = field(default_factory=dict)  # 性能分解（T-P01/T-P02, 秒）
 
 
 @dataclass
@@ -124,7 +125,9 @@ def run_task(
     persist: bool = True,
 ) -> RunResult:
     """执行一次回测（装配 → 驱动 → 导出 → 入库）。"""
+    t0 = time.perf_counter()
     pipeline = build_pipeline(settings, task.universe)
+    t_load = time.perf_counter()
     strategy_path = Path(task.strategy.file)
     if not strategy_path.is_file():
         raise ZQuantError(
@@ -163,6 +166,7 @@ def run_task(
     except ZQuantError:
         session.status = "error"
         raise
+    t_engine = time.perf_counter()
 
     # 状态聚合（引擎 one_word + 会话 day 过期; 8.8 语义保真）
     degradations = list(engine.degradations) + list(snapshot["degradations"])
@@ -196,6 +200,7 @@ def run_task(
     )
     store = RunStore(out_root)
     out_dir = store.export(bundle)
+    t_export = time.perf_counter()
 
     db: Engine | None = None
     error_log: str | None = None
@@ -205,6 +210,7 @@ def run_task(
             persist_run(db, bundle, manifest, manifest_hash)
         except Exception as exc:  # noqa: BLE001 - 入库失败不阻断导出（结果已落盘, 9.1）
             error_log = f"{type(exc).__name__}: {exc}"
+    t_persist = time.perf_counter()
     return RunResult(
         run_id=run_id,
         bundle=bundle,
@@ -214,6 +220,13 @@ def run_task(
         db=db,
         status=status,
         error_log=error_log,
+        timing={
+            "load": t_load - t0,
+            "engine": t_engine - t_load,
+            "export": t_export - t_engine,
+            "persist": t_persist - t_export,
+            "total": t_persist - t0,
+        },
     )
 
 
