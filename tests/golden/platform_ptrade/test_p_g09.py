@@ -72,7 +72,8 @@ def test_g09_ptrade_universe_switch_and_query(tri_driver) -> None:
     script = (
         f"PROBE = r'{probe}'\n"
         "import json as _json\n" + PTRADE_G09_SWITCH + "\ndef after_trading_end(context):\n"
-        "    _json.dump({'hist_c': g.get('hist_c', -1)}, open(PROBE, 'w'))\n"
+        "    with open(PROBE, 'w') as _f:\n"
+        "        _json.dump({'hist_c': g.get('hist_c', -1)}, _f)\n"
     )
     run_ptrade_golden(tri_driver, script)
     result = _json.loads(probe.read_text(encoding="utf-8"))
@@ -132,7 +133,8 @@ def test_g10_ptrade_schedule_visibility(gdriver) -> None:
     script = (
         f"PROBE = r'{probe}'\n"
         "import json as _json\n" + PTRADE_G10 + "\ndef after_trading_end(context):\n"
-        "    _json.dump({'before': g.before_close, 'handle': g.handle_close}, open(PROBE, 'w'))\n"
+        "    with open(PROBE, 'w') as _f:\n"
+        "        _json.dump({'before': g.before_close, 'handle': g.handle_close}, _f)\n"
     )
     run_ptrade_golden(gdriver, script)
     result = _json.loads(probe.read_text(encoding="utf-8"))

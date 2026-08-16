@@ -46,7 +46,8 @@ def _jq_run(
         "    g.n += 1\n"
         f"{body_lines}"
         "def after_trading_end(context):\n"
-        "    _json.dump(g.probe, open(PROBE, 'w', encoding='utf-8'), default=str)\n"
+        "    with open(PROBE, 'w', encoding='utf-8') as _f:\n"
+        "        _json.dump(g.probe, _f, default=str)\n"
     )
     env = make_backtest_env(tmp_path, n=n, strategy_text=strategy)
     env.task.strategy.type = "joinquant"
@@ -109,7 +110,8 @@ def handle_data(context, data):
 
 def after_trading_end(context):
     import json
-    json.dump({'n': g.n}, open(r'%s', 'w'))
+    with open(r'%s', 'w') as _f:
+        json.dump({'n': g.n}, _f)
 """ % (Path(tmp_path) / "probe.json")
     _jq_run(tmp_path, "", init_extra="")  # 保留装配副作用（probe 落盘）
     # 直接跑含 process_initialize 的完整策略

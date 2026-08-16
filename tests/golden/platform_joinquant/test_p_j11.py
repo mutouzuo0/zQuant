@@ -78,8 +78,8 @@ def test_g11_jq_cash_div_and_bonus() -> None:
     script = (
         f"PROBE = r'{probe}'\n" + JQ_G11 + "\ndef after_trading_end(context):\n"
         "    import json as _json\n"
-        "    _json.dump({'qty': g.get('qty_at_ex'), 'cost': g.get('cost_at_ex')},"
-        " open(PROBE, 'w'))\n"
+        "    with open(PROBE, 'w') as _f:\n"
+        "        _json.dump({'qty': g.get('qty_at_ex'), 'cost': g.get('cost_at_ex')}, _f)\n"
     )
     snap = run_joinquant_golden(driver, script)
     result = _json.loads(probe.read_text(encoding="utf-8"))

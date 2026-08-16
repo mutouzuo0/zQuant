@@ -61,7 +61,8 @@ def _ptrade_run(
         "    g.n += 1\n"
         f"{body_lines}"
         "def after_trading_end(context):\n"
-        "    _json.dump(g.probe, open(PROBE_PATH, 'w', encoding='utf-8'), default=str)\n"
+        "    with open(PROBE_PATH, 'w', encoding='utf-8') as _f:\n"
+        "        _json.dump(g.probe, _f, default=str)\n"
     )
     env = make_backtest_env(tmp_path, n=n, strategy_text=strategy)
     env.task.strategy.type = "ptrade"
@@ -448,7 +449,8 @@ def _ptrade_run_with_extra_fn(
         "    g.n += 1\n"
         f"{body_lines}"
         "def after_trading_end(context):\n"
-        "    _json.dump(g.probe, open(PROBE_PATH, 'w', encoding='utf-8'), default=str)\n"
+        "    with open(PROBE_PATH, 'w', encoding='utf-8') as _f:\n"
+        "        _json.dump(g.probe, _f, default=str)\n"
     )
     env = make_backtest_env(tmp_path, n=n, strategy_text=strategy)
     env.task.strategy.type = "ptrade"
