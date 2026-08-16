@@ -26,8 +26,10 @@ python -m venv .venv
 ```bash
 cp config/settings.example.json config/settings.json   # 本地配置（不入 Git）
 cp config/secrets.example.json   config/secrets.json   # 密钥（不入 Git；tushare token 填这里）
-zquant config check
+zquant config
 ```
+
+> 📖 **完整使用说明见 [`docs/使用说明.md`](docs/使用说明.md)**：怎么运行、怎么准备数据、怎么用 AI。
 
 ## 开发
 
