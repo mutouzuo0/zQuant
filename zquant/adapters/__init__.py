@@ -12,6 +12,6 @@ native(F6) / ptrade(M2-L) / joinquant(M2-N)。
 
 from __future__ import annotations
 
-from zquant.adapters import native, ptrade  # noqa: F401  # 注册（4.3）
+from zquant.adapters import joinquant, native, ptrade  # noqa: F401  # 注册（4.3）
 
-__all__ = ["native", "ptrade"]
+__all__ = ["native", "ptrade", "joinquant"]
