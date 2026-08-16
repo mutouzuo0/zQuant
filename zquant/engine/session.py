@@ -1,8 +1,8 @@
 # coding:utf-8
 # @author      : 木头左
 # @create_time        : 2026/08/16 06:48:31
-# @update_time        : 2026/08/16 09:06:00
-# @description : F5/I1 BacktestSession：生产化会话 + 任务配置解析（3.6/5.1）
+# @update_time        : 2026/08/16 09:40:00
+# @description : F5/I1 BacktestSession：生产化会话 + 任务配置解析（3.6/5.1）; W0 emit + K4 视图
 
 """BacktestSession（设计 5.1 SessionPort 的生产实现，阶段 I 提炼自 golden DailyDriver）。
 
@@ -116,13 +116,14 @@ class TaskConfig(BaseModel):
 # ============================================================
 @dataclass(frozen=True)
 class _PosView:
-    """策略可见的持仓（total_qty/市值/成本/最新价）。"""
+    """策略可见的持仓（total_qty/市值/成本/最新价; M2-K4 增 today_qty 支撑 closeable/enable）。"""
 
     code: str
     total_qty: float
     market_value: float
     avg_cost: float
     last_price: float
+    today_qty: float = 0.0  # 今日买入量（T+1: closeable = total - today）
 
 
 @dataclass
@@ -134,6 +135,7 @@ class AccountView:
     receivable_cash: float = 0.0
     frozen_cash: float = 0.0
     total_value: float = 0.0  # 现金四分类 + 持仓市值
+    initial_cash: float = 0.0  # 期初资金（平台 portfolio.starting_cash, 4.4 投影）
 
     @property
     def total_cash(self) -> float:
@@ -747,6 +749,7 @@ class BacktestSession:
                     market_value=pos.market_value,
                     avg_cost=pos.avg_cost,
                     last_price=pos.last_price,
+                    today_qty=pos.today_qty,
                 )
                 for code, pos in self._account.positions.items()
             },
@@ -755,6 +758,7 @@ class BacktestSession:
             frozen_cash=self._account.frozen_cash,
         )
         view.total_value = view.total_cash + sum(p.market_value for p in view.positions.values())
+        view.initial_cash = self._account.initial_cash
         return view
 
     # ------------------------------------------------------------------

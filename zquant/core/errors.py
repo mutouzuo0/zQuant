@@ -1,7 +1,7 @@
 # coding:utf-8
 # @author      : 木头左
-# @date        : 2026/08/15 21:45:06
-# @description : 结构化异常体系（设计 10.5 / 4.9）
+# @date        : 2026/08/16 10:05:00
+# @description : 结构化异常体系（设计 10.5 / 4.9）; M2-K7 NotImplementedApiError 补机读字段
 
 """结构化异常体系（设计 10.5 / 4.9）。
 
@@ -79,6 +79,10 @@ class NotImplementedApiError(ZQuantError):
         level: str = "L2",
         alternative: str | None = None,
     ) -> None:
+        self.api_name = api_name  # M2-K7: 机读字段（4.9 模板）
+        self.platform = platform
+        self.level = level
+        self.alternative = alternative
         hint = f"兼容清单: docs/compat/{platform}.md"
         if alternative:
             hint += f"；可选替代: {alternative}"
