@@ -39,6 +39,7 @@ from zquant.core.codes import normalize_code
 from zquant.core.errors import ZQuantError
 from zquant.core.types import InstrumentType
 from zquant.data.master import InstrumentRow, MasterStore
+from zquant.data.ratelimit import TokenBucketLimiter  # D5: 防封禁件提炼自 ratelimit 共用
 
 _TUSHARE_COLS = ("ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount")
 
@@ -54,37 +55,6 @@ class DownloadReport:
     merged_start: str = ""
     merged_end: str = ""
     reason: str = ""
-
-
-class TokenBucketLimiter:
-    """令牌桶限流（3.9: 速率 + 抖动; 注入 now 便于测试）。"""
-
-    def __init__(
-        self,
-        rate_per_min: int = 60,
-        *,
-        jitter_range: tuple[float, float] = (0.5, 1.5),
-        rng: random.Random | None = None,
-        now: Callable[[], float] | None = None,
-    ) -> None:
-        self.rate_per_min = max(1, rate_per_min)
-        self.interval = 60.0 / self.rate_per_min
-        self.jitter_range = jitter_range
-        self.rng = rng or random.Random(42)  # 确定性纪律 8.8
-        self._now = now or time_mod.monotonic
-        self._last = -float("inf")
-
-    def wait(self) -> float:
-        """按需等待以保持速率; 返回本次实际等待秒数（含抖动）。
-
-        语义: 相邻两次许可的启动时刻间隔 ≈ interval（含 0.5~1.5× 抖动）——
-        首次立即放行, 之后若过早请求则等待补足。
-        """
-        interval = self.interval * self.rng.uniform(*self.jitter_range)
-        now = self._now()
-        wait = max(0.0, self._last - now)
-        self._last = max(self._last, now) + interval
-        return wait
 
 
 class EtfDownloader:

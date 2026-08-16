@@ -2,7 +2,7 @@
 # @author      : 木头左
 # @create_time        : 2026/08/16 11:00:00
 # @update_time        : 2026/08/16 09:16:00
-# @description : I1 zquant CLI：run/list/report/replay/config/cache/fetch-etf/validate/serve
+# @description : I1 zquant CLI：run/list/report/replay/config/cache/fetch/sql/validate/serve
 
 """zquant CLI（设计 10.1 三调用面之一; typer + rich, --json 机读）。
 
@@ -14,6 +14,9 @@
   validate -c task.json                      任务配置校验（3.6 / JSON Schema）
   config check                               配置存在性/密钥状态
   cache clean [--code X] [--all]             清理 parquet 二级缓存（3.7）
+  fetch [--codes ..] [--start ..] [--end ..] 完整 DataFetcher（3.9: 幂等/去重/续传/多源）;
+        [--master] 刷新主数据 / [--import dir] 导入 CSV / [--dry-run] 仅覆盖检查
+  sql "SELECT ..."                           只读即席查询（3.10, 禁写面）
   fetch-etf --codes .. --start .. --end ..   下载 ETF 日线（3.9 裁剪版, 可 --demo）
   serve [--with-task task.json]              本地浏览器监控回测（M2-W0, WS 事件流）
 
@@ -523,6 +526,167 @@ def fetch_etf(
             f"{r.merged_start} ~ {r.merged_end}",
             r.reason,
         )
+    console.print(table)
+
+
+# ============================================================
+# fetch（M2-O7 完整 DataFetcher, 3.9）: 幂等/去重/续传/多源/主数据/导入
+# ============================================================
+@app.command()
+def fetch(
+    codes: Annotated[
+        str | None, typer.Option("--codes", help="逗号分隔代码, 如 510300.SH,600000.SH")
+    ] = None,
+    freq: Annotated[str, typer.Option("--freq", help="频率（M2 仅支持 1d）")] = "1d",
+    start: Annotated[str | None, typer.Option("--start", help="开始日期 YYYY-MM-DD")] = None,
+    end: Annotated[str | None, typer.Option("--end", help="结束日期 YYYY-MM-DD")] = None,
+    sources: Annotated[
+        str, typer.Option("--sources", help="逗号分隔源, 顺序=fallback（akshare,tushare）")
+    ] = "akshare,tushare",
+    resume: Annotated[
+        bool, typer.Option("--resume", help="续传: 已 checkpoint 区间不重下")
+    ] = False,
+    master: Annotated[
+        bool, typer.Option("--master", help="刷新主数据（全量拉取 + code 主键 upsert + 快照留档）")
+    ] = False,
+    import_dir: Annotated[
+        str | None, typer.Option("--import", help="导入目录任意 CSV（3.5 嗅探 → 去重合并入库）")
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="仅覆盖检查（不下载不写盘）")] = False,
+    json_out: Annotated[bool, typer.Option("--json", help="机读输出")] = False,
+) -> None:
+    """下载 K 线/主数据到本地 CSV（3.9 六步管道: 覆盖→增量→归一→去重→原子→缓存失效）。"""
+    from zquant.data.fetcher import DataFetcher
+
+    try:
+        settings = load_settings()
+        root = Path(settings.data.local_csv.root_path)
+        fetcher = DataFetcher(
+            root,
+            sources=[s.strip() for s in sources.split(",") if s.strip()],
+            cache_dir=Path(settings.data.cache.parquet_dir),  # ⑥ 缓存失效目标
+        )
+        if master:
+            rep = fetcher.fetch_master()
+            if json_out:
+                _print_json(
+                    {
+                        "added": rep.added,
+                        "updated": rep.updated,
+                        "total": rep.total,
+                        "source": rep.source,
+                        "reason": rep.reason,
+                    }
+                )
+                return
+            console.print(
+                f"[green]✔[/green] 主数据刷新: 新增 {rep.added} / 更新 {rep.updated}"
+                f"（源: {rep.source or '—'}）"
+            )
+            return
+        if import_dir:
+            reports = fetcher.import_dir(Path(import_dir))
+        else:
+            if not codes or not start or not end:
+                raise typer.BadParameter(
+                    "需要 --codes/--start/--end（或 --master / --import <dir>）"
+                )
+            code_list = [c.strip() for c in codes.split(",") if c.strip()]
+            reports = fetcher.fetch(
+                code_list,
+                date.fromisoformat(start),
+                date.fromisoformat(end),
+                frequency=freq,
+                dry_run=dry_run,
+                resume=resume,
+            )
+    except (typer.Exit, typer.BadParameter):
+        raise
+    except ZQuantError as exc:
+        _emit_error(exc, json_out=json_out)
+        return
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(exc, json_out=json_out)
+        return
+
+    if json_out:
+        _print_json(
+            [
+                {
+                    "code": r.code,
+                    "status": r.status,
+                    "added_rows": r.added_rows,
+                    "dedup_removed": r.dedup_removed,
+                    "range": [r.merged_start, r.merged_end],
+                    "source": r.source,
+                    "reason": r.reason,
+                }
+                for r in reports
+            ]
+        )
+        return
+    table = Table(title="数据获取报告（3.9）")
+    table.add_column("代码")
+    table.add_column("状态")
+    table.add_column("新增行")
+    table.add_column("去重")
+    table.add_column("区间")
+    table.add_column("来源")
+    table.add_column("说明")
+    mark = {
+        "ok": "[green]ok[/green]",
+        "skipped": "[yellow]skipped[/yellow]",
+        "dry_run": "[cyan]dry-run[/cyan]",
+        "failed": "[red]failed[/red]",
+    }
+    for r in reports:
+        table.add_row(
+            r.code,
+            mark.get(r.status, r.status),
+            str(r.added_rows),
+            str(r.dedup_removed),
+            f"{r.merged_start} ~ {r.merged_end}",
+            r.source,
+            r.reason,
+        )
+    console.print(table)
+
+
+# ============================================================
+# sql（M2-O7 只读即席查询, 3.10）: 禁 DDL/DML
+# ============================================================
+@app.command()
+def sql(
+    statement: Annotated[str, typer.Argument(help="只读 SQL（SELECT/WITH/SHOW/DESCRIBE/EXPLAIN）")],
+    json_out: Annotated[bool, typer.Option("--json", help="机读输出")] = False,
+) -> None:
+    """DuckDB 只读即席查询（3.10; 写面语句一律拒绝, 数据写入走 DataFetcher）。"""
+    from zquant.data.duckdb_query import DuckDBQuery
+
+    try:
+        q = DuckDBQuery()
+        try:
+            df = q.execute_select(statement)
+        finally:
+            q.close()
+    except ZQuantError as exc:
+        _emit_error(exc, json_out=json_out)
+        return
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(exc, json_out=json_out)
+        return
+
+    if json_out:
+        _print_json(df.to_dict(orient="records"))
+        return
+    if df is None or df.empty:
+        console.print("[yellow]（空结果集）[/yellow]")
+        return
+    table = Table(title="SQL 查询结果")
+    for col in df.columns:
+        table.add_column(str(col))
+    for _, row in df.iterrows():
+        table.add_row(*(str(v) for v in row))
     console.print(table)
 
 

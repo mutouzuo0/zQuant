@@ -115,3 +115,35 @@ def test_ti02_real_etf_smoke_demo_dual_ma(tmp_path: Path) -> None:
 
     report_path = render_report(result.run_id, out_root=tmp_path / "results")
     assert report_path.is_file()
+
+
+@pytest.mark.slow
+@pytest.mark.network
+def test_o_fetcher_real_etf_incremental(tmp_path: Path) -> None:
+    """O 验收（3.9）: 真实拉取 3 只 ETF 增量补洞 + 幂等（网络不可用 skip）。"""
+    from datetime import date, timedelta
+
+    from zquant.core.errors import ZQuantError
+    from zquant.data.fetcher import DataFetcher
+
+    root = tmp_path / "data"
+    fetcher = DataFetcher(
+        root,
+        sources=["akshare", "tushare"],
+        checkpoint_dir=tmp_path / ".cache" / "checkpoint",
+        cache_dir=tmp_path / ".cache" / "parquet",
+    )
+    end = date.today()
+    start = end - timedelta(days=15)
+    try:
+        reports = fetcher.fetch(["510300.SH", "510500.SH", "159915.SZ"], start, end)
+    except ZQuantError as exc:
+        pytest.skip(f"网络不可用: {exc}")
+
+    ok = [r for r in reports if r.status == "ok"]
+    assert len(ok) >= 1, f"至少 1 只 ETF 真实拉取成功, 得 {[r.status for r in reports]}"
+    # 落盘 + 幂等: 同参数重复 fetch → skipped（零下载零写入, 3.9）
+    for r in ok:
+        assert (root / "kline" / "etf" / "day" / f"{r.code}.csv").is_file()
+    again = fetcher.fetch(["510300.SH"], start, end)
+    assert again[0].status == "skipped", "重复 fetch 应零下载零写入（幂等）"

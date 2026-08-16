@@ -20,6 +20,8 @@ dependencies = [
     "typer>=0.9",
     "rich>=13.0",
     "pyarrow>=14.0",
+    # M2-O 数据覆盖检查与去重合并（3.9/3.10, read_csv_auto + row_number 去重）
+    "duckdb>=1.0",
     # M2-W0 提前自 M4 引入（Web 最小可视版; M4 不再重复配置）
     "fastapi>=0.110",
     "uvicorn>=0.29",
