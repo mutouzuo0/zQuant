@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import ast
 import html
 import json
 from pathlib import Path
@@ -46,9 +47,11 @@ def render_report(
     summary = _load_json(run_dir / "summary.json") or {}
     navs = _load_navs(run_dir)
     orders = _load_orders(run_dir)
+    fills = _load_fills(run_dir)
+    events = _load_events(run_dir)
     task = _load_json(run_dir / "task.json") or {}
 
-    html_text = _render_html(run_id, summary, navs, orders, task)
+    html_text = _render_html(run_id, summary, navs, orders, fills, events, task)
     out = Path(out_path) if out_path else run_dir / "report.html"
     out.write_text(html_text, encoding="utf-8")
     return out
@@ -77,6 +80,181 @@ def _load_orders(run_dir: Path) -> list[dict[str, Any]]:
         return []
     df = pd.read_csv(path, dtype={"order_id": str})
     return df.to_dict("records")
+
+
+def _load_fills(run_dir: Path) -> list[dict[str, Any]]:
+    """成交（含容量证据列 bar_volume/participation_rate, 8.4.4）。"""
+    path = run_dir / "fills.csv"
+    if not path.is_file():
+        return []
+    df = pd.read_csv(path, dtype={"order_id": str})
+    return df.to_dict("records")
+
+
+def _load_events(run_dir: Path) -> list[dict[str, Any]]:
+    path = run_dir / "order_events.csv"
+    if not path.is_file():
+        return []
+    df = pd.read_csv(path, dtype={"order_id": str})
+    return df.to_dict("records")
+
+
+def _parse_info_json(raw: Any) -> dict[str, Any]:
+    """容错解析 info_json（CSV 可能落 dict-repr / JSON 字符串 / 空）。"""
+    if raw is None or (isinstance(raw, float) and np.isnan(raw)):
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    text = str(raw).strip()
+    if not text or text.lower() == "nan":
+        return {}
+    for loader in (json.loads, ast.literal_eval):
+        try:
+            val = loader(text)
+            return val if isinstance(val, dict) else {}
+        except (ValueError, SyntaxError):
+            continue
+    return {}
+
+
+# ------------------------------------------------------------------
+# 容量证据（8.4.4, M2-P4）: 参与率分布/容量截断/不可成交/成交延迟
+# ------------------------------------------------------------------
+def _capacity_stats(
+    fills: list[dict[str, Any]],
+    orders: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    rates = [float(f.get("participation_rate") or 0.0) for f in fills if f.get("volume")]
+    part = {}
+    if rates:
+        arr = np.asarray(rates, dtype=float)
+        part = {
+            "max": float(arr.max()),
+            "mean": float(arr.mean()),
+            "p95": float(np.percentile(arr, 95)),
+            "count": int(len(arr)),
+        }
+    else:
+        part = {"max": 0.0, "mean": 0.0, "p95": 0.0, "count": 0}
+
+    # 容量截断（order_events info_json.capacity_capped）
+    capped = sum(1 for e in events if _parse_info_json(e.get("info_json")).get("capacity_capped"))
+
+    # 不可成交（orders 终态）; 一字板/停牌拆分（expire 事件 info_json.one_word_limit）
+    total = max(len(orders), 1)
+    statuses = [str(o.get("status", "")) for o in orders]
+    expired = sum(1 for s in statuses if s == "EXPIRED")
+    rejected = sum(1 for s in statuses if s == "REJECTED")
+    one_word = sum(
+        1
+        for e in events
+        if e.get("event_type") == "expire"
+        and _parse_info_json(e.get("info_json")).get("one_word_limit")
+    )
+    suspend_expire = max(expired - one_word, 0)
+
+    # 成交延迟（fill_time − 订单 submitted_at, 按 order_id join）
+    sub = {str(o.get("order_id")): o.get("submitted_at") for o in orders}
+    lat_days: list[float] = []
+    for f in fills:
+        ft, st = f.get("fill_time"), sub.get(str(f.get("order_id")))
+        if ft and st:
+            try:
+                lat_days.append((pd.Timestamp(ft) - pd.Timestamp(st)).total_seconds() / 86400.0)
+            except (ValueError, TypeError):
+                continue
+    lat = {}
+    if lat_days:
+        arr = np.asarray(lat_days, dtype=float)
+        lat = {
+            "min": float(arr.min()),
+            "mean": float(arr.mean()),
+            "p95": float(np.percentile(arr, 95)),
+            "max": float(arr.max()),
+            "count": int(len(arr)),
+        }
+    return {
+        "participation": part,
+        "truncated": capped,
+        "truncation_ratio": round(capped / total, 6),
+        "expired": expired,
+        "rejected": rejected,
+        "one_word": one_word,
+        "suspend_expire": suspend_expire,
+        "unfillable_ratio": round((expired + rejected) / total, 6),
+        "latency_days": lat,
+        "total_orders": len(orders),
+    }
+
+
+def _render_capacity(stats: dict[str, Any]) -> str:
+    """8.4.4 容量与摩擦证据四表+图（内嵌, 无 CDN）。"""
+    part = stats["participation"]
+    lat = stats["latency_days"]
+    rows_p = (
+        f"<tr><td>样本</td><td>{part['count']}</td></tr>"
+        f"<tr><td>max</td><td>{part['max']:.4f}</td></tr>"
+        f"<tr><td>mean</td><td>{part['mean']:.4f}</td></tr>"
+        f"<tr><td>p95</td><td>{part['p95']:.4f}</td></tr>"
+        if part.get("count")
+        else "<tr><td colspan='2' class='dim'>无成交</td></tr>"
+    )
+    tot = stats["total_orders"]
+    rows_u = (
+        f"<tr><td>容量截断单数</td><td>{stats['truncated']} "
+        f"（占比 {stats['truncation_ratio']:.2%}）</td></tr>"
+        f"<tr><td>过期(expired)</td><td>{stats['expired']}</td></tr>"
+        f"<tr><td>· 一字板</td><td>{stats['one_word']}</td></tr>"
+        f"<tr><td>· 停牌/当日未成交</td><td>{stats['suspend_expire']}</td></tr>"
+        f"<tr><td>拒单(rejected)</td><td>{stats['rejected']}</td></tr>"
+        f"<tr><td>不可成交合计</td><td>{stats['expired'] + stats['rejected']} "
+        f"（占比 {stats['unfillable_ratio']:.2%}）</td></tr>"
+        f"<tr><td>订单总数</td><td>{tot}</td></tr>"
+    )
+    rows_l = (
+        f"<tr><td>样本</td><td>{lat['count']}</td></tr>"
+        f"<tr><td>min</td><td>{lat['min']:.3f} 日</td></tr>"
+        f"<tr><td>mean</td><td>{lat['mean']:.3f} 日</td></tr>"
+        f"<tr><td>p95</td><td>{lat['p95']:.3f} 日</td></tr>"
+        f"<tr><td>max</td><td>{lat['max']:.3f} 日</td></tr>"
+        if lat.get("count")
+        else "<tr><td colspan='2' class='dim'>无成交</td></tr>"
+    )
+    # 参与率分布迷你条形（0~5% 分段, 占整体宽度）
+    bars = _participation_bars(stats["participation"])
+    return f"""
+<h2>容量与摩擦证据（8.4.4）</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+  <div><h3 style="font-size:14px">参与率分布（volume / bar_volume）</h3>
+    <table><thead><tr><th>统计</th><th>值</th></tr></thead><tbody>{rows_p}</tbody></table>
+    <div style="margin-top:6px">{bars}</div></div>
+  <div><h3 style="font-size:14px">不可成交 / 容量截断</h3>
+    <table><thead><tr><th>项</th><th>单数</th></tr></thead><tbody>{rows_u}</tbody></table></div>
+  <div><h3 style="font-size:14px">成交延迟分布（挂单→成交, 日）</h3>
+    <table><thead><tr><th>统计</th><th>值</th></tr></thead><tbody>{rows_l}</tbody></table></div>
+</div>
+"""
+
+
+def _participation_bars(part: dict[str, Any]) -> str:
+    """参与率 0~50% 分 5 档迷你条形（占 bar_volume 比例的成交样本）。"""
+    # 用 mean/p95/max 三点示意档位（简化无直方源数据）
+    tips = [
+        ("mean", part.get("mean", 0.0)),
+        ("p95", part.get("p95", 0.0)),
+        ("max", part.get("max", 0.0)),
+    ]
+
+    def _bar(label: str, v: float) -> str:
+        width = min(100.0, v / 0.5 * 100.0) if v else 0.0
+        return (
+            f'<div class="dim" style="margin:2px 0">{label}: '
+            f'<span style="display:inline-block;width:{width:.0f}%;height:10px;'
+            f'background:#2563eb;vertical-align:middle"></span> {v:.4f}</div>'
+        )
+
+    return "".join(_bar(k, v) for k, v in tips)
 
 
 # ------------------------------------------------------------------
@@ -155,6 +333,8 @@ def _render_html(
     summary: dict[str, Any],
     navs: list[dict[str, Any]],
     orders: list[dict[str, Any]],
+    fills: list[dict[str, Any]],
+    events: list[dict[str, Any]],
     task: dict[str, Any],
 ) -> str:
     status = summary.get("status", "?")
@@ -162,6 +342,7 @@ def _render_html(
     metrics = summary.get("metrics", {}) or {}
     net_card = _metric_card(navs, key="nav")
     gross_card = _metric_card(navs, key="gross_nav")
+    capacity = _render_capacity(_capacity_stats(fills, orders, events))
 
     def _cards(card: dict[str, str]) -> str:
         return "".join(
@@ -245,6 +426,8 @@ def _render_html(
 
 <h2>成交明细（最近 100 笔）</h2>
 {orders_table}
+
+{capacity}
 
 <h2>指标口径附注</h2>
 <p class="muted">8.4 公式: 年化=nav^(250/n)-1（ANN=250）; 波动 ddof=1;

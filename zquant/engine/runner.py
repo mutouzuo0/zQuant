@@ -123,8 +123,12 @@ def run_task(
     db_url: str | None = None,
     run_id: str | None = None,
     persist: bool = True,
+    parent_run_id: str | None = None,
 ) -> RunResult:
-    """执行一次回测（装配 → 驱动 → 导出 → 入库）。"""
+    """执行一次回测（装配 → 驱动 → 导出 → 入库）。
+
+    parent_run_id（P2 rerun 谱系）: 新 run 记录指向原 run（10.3 lineage 用）。
+    """
     t0 = time.perf_counter()
     pipeline = build_pipeline(settings, task.universe)
     t_load = time.perf_counter()
@@ -207,7 +211,7 @@ def run_task(
     if persist:
         try:
             db = init_db(db_url or settings.database.url)
-            persist_run(db, bundle, manifest, manifest_hash)
+            persist_run(db, bundle, manifest, manifest_hash, parent_run_id=parent_run_id)
         except Exception as exc:  # noqa: BLE001 - 入库失败不阻断导出（结果已落盘, 9.1）
             error_log = f"{type(exc).__name__}: {exc}"
     t_persist = time.perf_counter()
@@ -235,8 +239,13 @@ def persist_run(
     bundle: ExportBundle,
     manifest: dict[str, Any],
     manifest_hash: str,
+    *,
+    parent_run_id: str | None = None,
 ) -> None:
-    """Bundle → DB（快照 sha256 复用 / 脱敏 / 明细 executemany, 8.3/3.6/8.7）。"""
+    """Bundle → DB（快照 sha256 复用 / 脱敏 / 明细 executemany, 8.3/3.6/8.7）。
+
+    parent_run_id（P2 rerun）: 谱系指向原 run（10.3）。
+    """
     repo = RunRepo(db)
     detail = DetailRepo(db)
     strategy_code = bundle.strategy_code or ""
@@ -255,6 +264,7 @@ def persist_run(
         status=bundle.status,
         manifest_hash=manifest_hash,
         zquant_version=__version__,
+        parent_run_id=parent_run_id,
     )
     _ = run  # run 对象仅供状态机使用（明细走 DetailRepo）
 
@@ -358,6 +368,8 @@ def _fill_rows(bundle: ExportBundle, snapshot_id: int) -> list[dict[str, Any]]:
                 "slippage_cost": f.get("slippage_cost", 0.0),
                 "total_fee": f["total_fee"],
                 "order_api": "",
+                "bar_volume": f.get("bar_volume", 0.0),  # 容量证据（8.4.4）
+                "participation_rate": f.get("participation_rate", 0.0),
             }
         )
     return rows

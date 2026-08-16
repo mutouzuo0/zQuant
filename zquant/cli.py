@@ -691,6 +691,184 @@ def sql(
 
 
 # ============================================================
+# compare / lineage / diff / rerun（M2-P1/P2, 10.3 谱系与对照）
+# ============================================================
+@app.command()
+def compare(
+    run_ids: Annotated[list[str], typer.Argument(help="run_id 列表（≤6）")],
+    out_csv: Annotated[
+        str | None, typer.Option("--csv", help="净值序列对齐导出 CSV 路径（可选）")
+    ] = None,
+    json_out: Annotated[bool, typer.Option("--json", help="机读输出")] = False,
+) -> None:
+    """多 run 8.4 指标对照表 + 净值序列对齐（10.3; 差异列高亮）。"""
+    from zquant.engine.compare import build_compare_table, build_nav_frame
+
+    try:
+        if not 1 <= len(run_ids) <= 6:
+            raise typer.BadParameter("run_id 数量须在 1~6 之间")
+        settings = load_settings()
+        repo = RunRepo(init_db(settings.database.url))
+        metrics = [(rid, repo.get_metrics(rid)) for rid in run_ids]
+        navs = [(rid, repo.get_navs(rid)) for rid in run_ids]
+    except (typer.Exit, typer.BadParameter):
+        raise
+    except ZQuantError as exc:
+        _emit_error(exc, json_out=json_out)
+        return
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(exc, json_out=json_out)
+        return
+
+    table = build_compare_table(metrics)
+    frame = build_nav_frame(navs)
+    if json_out:
+        import pandas as pd
+
+        _print_json(
+            {
+                "metrics": {
+                    row: {rid: table["rows"][row].get(rid) for rid in table["runs"]}
+                    for row in table["rows"]
+                },
+                "best": table["best"],
+                "navs": {
+                    rid: {
+                        str(idx): (None if pd.isna(v) else float(v))
+                        for idx, v in frame[rid].items()
+                    }
+                    for rid in table["runs"]
+                    if rid in frame
+                },
+            }
+        )
+        return
+    rt = Table(title="8.4 指标对照（gross/net 同源, 10.3）")
+    rt.add_column("指标")
+    for rid in table["runs"]:
+        rt.add_column(rid[:12], justify="right")
+    for row in table["rows"]:
+        cells = [row]
+        for rid in table["runs"]:
+            v = table["rows"][row].get(rid)
+            txt = f"{v:.4f}" if isinstance(v, (int, float)) else "—"
+            if table["best"].get(row) == rid and isinstance(v, (int, float)):
+                txt = f"[bold green]{txt}[/bold green]"
+            cells.append(txt)
+        rt.add_row(*cells)
+    console.print(rt)
+    if out_csv:
+        frame.to_csv(out_csv)
+        console.print(f"[green]✔[/green] 净值序列已导出: {out_csv}")
+    elif len(frame):
+        console.print(f"[dim]净值对齐 {len(frame)} 行（交易日）; --csv 导出全量[/dim]")
+
+
+@app.command()
+def lineage(
+    run_id: Annotated[str | None, typer.Argument(help="根 run_id（缺省全量谱系树）")] = None,
+    json_out: Annotated[bool, typer.Option("--json", help="机读输出")] = False,
+) -> None:
+    """打印 run 谱系树（parent_run_id, 10.3）。"""
+    from zquant.engine.compare import build_lineage_tree
+
+    try:
+        settings = load_settings()
+        repo = RunRepo(init_db(settings.database.url))
+        nodes = repo.lineage()
+        tree = build_lineage_tree(nodes, root=run_id)
+    except (typer.Exit, typer.BadParameter):
+        raise
+    except ZQuantError as exc:
+        _emit_error(exc, json_out=json_out)
+        return
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(exc, json_out=json_out)
+        return
+    if json_out:
+        _print_json({"root": run_id, "nodes": nodes})
+        return
+    console.print(tree)
+
+
+@app.command()
+def diff(
+    r1: Annotated[str, typer.Argument(help="旧 run_id")],
+    r2: Annotated[str, typer.Argument(help="新 run_id")],
+    json_out: Annotated[bool, typer.Option("--json", help="机读输出")] = False,
+) -> None:
+    """策略源码 + 参数（归一）差异（10.3）。"""
+    from zquant.engine.compare import params_diff, strategy_diff
+
+    try:
+        settings = load_settings()
+        repo = RunRepo(init_db(settings.database.url))
+        code1, code2 = repo.get_snapshot_code(r1), repo.get_snapshot_code(r2)
+        p1, p2 = repo.get_params(r1), repo.get_params(r2)
+    except (typer.Exit, typer.BadParameter):
+        raise
+    except ZQuantError as exc:
+        _emit_error(exc, json_out=json_out)
+        return
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(exc, json_out=json_out)
+        return
+    sd = strategy_diff(code1, code2)
+    pdiff = params_diff(p1, p2)
+    if json_out:
+        _print_json({"strategy_diff": sd, "params_diff": pdiff})
+        return
+    console.print("[bold]策略源码差异[/bold]")
+    console.print(sd or "[dim]（无差异）[/dim]")
+    console.print("\n[bold]参数差异（sort_keys 归一）[/bold]")
+    console.print(pdiff or "[dim]（无差异）[/dim]")
+
+
+@app.command()
+def rerun(
+    run_id: Annotated[str, typer.Argument(help="原 run_id")],
+    json_out: Annotated[bool, typer.Option("--json", help="机读输出")] = False,
+) -> None:
+    """params_json 原样重跑; 新 run 的 parent_run_id 指向原 run（10.3）。"""
+    from zquant.engine.compare import rerun_from_params
+
+    try:
+        settings = load_settings()
+        repo = RunRepo(init_db(settings.database.url))
+        params = repo.get_params(run_id)
+        if params is None:
+            raise ZQuantError(f"run 无 params_json: {run_id}", stage="compare", hint="检查 run_id")
+        result = rerun_from_params(
+            params,
+            parent_run_id=run_id,
+            settings=settings,
+            db_url=settings.database.url,
+        )
+    except (typer.Exit, typer.BadParameter):
+        raise
+    except ZQuantError as exc:
+        _emit_error(exc, json_out=json_out)
+        return
+    except Exception as exc:  # noqa: BLE001
+        _emit_error(exc, json_out=json_out)
+        return
+    if json_out:
+        _print_json(
+            {
+                "parent_run_id": run_id,
+                "run_id": result.run_id,
+                "status": result.bundle.status,
+                "out_dir": str(result.out_dir),
+            }
+        )
+        return
+    console.print(
+        f"[green]✔[/green] rerun 完成: {result.run_id}（parent={run_id}, "
+        f"status={result.bundle.status}）"
+    )
+
+
+# ============================================================
 # cache clean（3.7）
 # ============================================================
 @app.command()

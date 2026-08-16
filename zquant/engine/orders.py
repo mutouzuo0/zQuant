@@ -152,7 +152,11 @@ class OrderEvent:
 
 @dataclass(frozen=True)
 class Fill:
-    """一笔实际成交（一订单可多笔部分成交；费用明细设计 8.3.3）。"""
+    """一笔实际成交（一订单可多笔部分成交；费用明细设计 8.3.3）。
+
+    容量证据（8.4.4, M2-P4）: bar_volume = 成交 bar 成量, participation_rate =
+    volume / bar_volume（成交参与率, 报告容量摩擦用）。
+    """
 
     order_id: str
     code: str
@@ -164,6 +168,8 @@ class Fill:
     stamp_tax: float = 0.0
     transfer_fee: float = 0.0
     slippage_cost: float = 0.0
+    bar_volume: float = 0.0  # 成交 bar 成量（容量证据, 8.4.4）
+    participation_rate: float = 0.0  # volume / bar_volume（8.4.4）
 
     @property
     def amount(self) -> float:

@@ -184,6 +184,8 @@ class Fill(Base):
     slippage_cost: Mapped[float] = mapped_column(Float, default=0.0)
     total_fee: Mapped[float] = mapped_column(Float, default=0.0)
     order_api: Mapped[str] = mapped_column(String(64), default="")
+    bar_volume: Mapped[float] = mapped_column(Float, default=0.0)  # 容量证据（8.4.4, M2-P4）
+    participation_rate: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class BacktestDailyNav(Base):

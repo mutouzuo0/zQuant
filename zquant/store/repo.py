@@ -221,6 +221,71 @@ class RunRepo:
                 return None
             return json.loads(row.metrics_json)
 
+    def get_params(self, run_id: str) -> dict[str, Any] | None:
+        """读取 params_json（已脱敏, 3.6; 缺失 → None）。"""
+        run = self.get(run_id)
+        if run is None or not run.params_json:
+            return None
+        try:
+            return json.loads(run.params_json)
+        except json.JSONDecodeError:
+            return None
+
+    def get_navs(self, run_id: str) -> list[dict[str, Any]]:
+        """读取每日净值明细（backtest_daily_nav, 8.3.4; compare/report 用）。"""
+        with Session(self.engine, expire_on_commit=False) as s:
+            rows = s.execute(
+                select(BacktestDailyNav)
+                .where(BacktestDailyNav.run_id == run_id)
+                .order_by(BacktestDailyNav.trade_date)
+            ).scalars()
+            return [
+                {
+                    "trade_date": r.trade_date,
+                    "strategy_nav": r.strategy_nav,
+                    "benchmark_nav": r.benchmark_nav,
+                    "cash": r.cash,
+                    "positions_value": r.positions_value,
+                    "total_value": r.total_value,
+                    "drawdown": r.drawdown,
+                    "open_positions": r.open_positions,
+                }
+                for r in rows
+            ]
+
+    def get_snapshot_code(self, run_id: str) -> str | None:
+        """读取该 run 策略源码快照（strategy_snapshot.code_text, P2 diff 用）。"""
+        with Session(self.engine, expire_on_commit=False) as s:
+            run = s.get(BacktestRun, run_id)
+            if run is None:
+                return None
+            snap = s.get(StrategySnapshot, run.strategy_snapshot_id)
+            return snap.code_text if snap is not None else None
+
+    def lineage(self) -> list[dict[str, Any]]:
+        """全量 run 谱系节点（含 parent_run_id/收益摘要, P2 lineage 用）。"""
+        with Session(self.engine, expire_on_commit=False) as s:
+            rows = s.execute(
+                select(BacktestRun, BacktestMetrics.metrics_json)
+                .join(BacktestMetrics, BacktestRun.id == BacktestMetrics.run_id, isouter=True)
+                .where(BacktestRun.deleted_at.is_(None))
+                .order_by(BacktestRun.started_at)
+            ).all()
+            out: list[dict[str, Any]] = []
+            for run, metrics_json in rows:
+                node: dict[str, Any] = {
+                    "run_id": run.id,
+                    "task_name": run.task_name,
+                    "platform": run.platform,
+                    "parent_run_id": run.parent_run_id,
+                    "status": run.status,
+                    "params_json": run.params_json,
+                }
+                m = _sharpe_from_metrics(metrics_json)
+                node["sharpe"] = m
+                out.append(node)
+            return out
+
     # ------------------------------------------------------------------
     def soft_delete(self, run_id: str) -> None:
         """软删除（deleted_at 标记, 8.1 级联优先软删）。"""

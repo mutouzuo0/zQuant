@@ -901,6 +901,8 @@ class BacktestSession:
             "transfer_fee": f.transfer_fee,
             "slippage_cost": f.slippage_cost,
             "total_fee": f.total_fee,
+            "bar_volume": f.bar_volume,  # 容量证据（8.4.4）
+            "participation_rate": f.participation_rate,
         }
 
     @staticmethod

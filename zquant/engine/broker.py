@@ -140,6 +140,8 @@ class BrokerSim:
             commission=fee.commission,
             stamp_tax=fee.stamp_tax,
             transfer_fee=fee.transfer_fee,
+            bar_volume=bar.volume,  # 容量证据（8.4.4）
+            participation_rate=round(fill_qty / bar.volume, 6) if bar.volume else 0.0,
         )
         ev_type = OrderEventType.PARTIAL_FILL if capped else OrderEventType.FILL
         info: dict[str, Any] = {}
