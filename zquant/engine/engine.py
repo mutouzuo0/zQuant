@@ -1,8 +1,8 @@
 # coding:utf-8
 # @author      : 木头左
 # @create_time        : 2026/08/16 02:10:00
-# @update_time        : 2026/08/16 06:48:31
-# @description : F3 UnifiedBacktestEngine：日内十阶段主循环（设计 5.1/6.4）
+# @update_time        : 2026/08/16 09:07:00
+# @description : F3 UnifiedBacktestEngine：日内十阶段主循环（设计 5.1/6.4）+ W0 事件
 
 """UnifiedBacktestEngine（设计 5.1）——统一回测主循环。
 
@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import time as _time  # 别名: 下方 from datetime import time 会遮蔽 stdlib time
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from typing import Any, Protocol
@@ -75,6 +76,7 @@ class SessionPort(Protocol):
     def record_event(self, ev: Any) -> None: ...  # 订单事件入流水
     def account_apply_fill(self, fill: Any) -> None: ...  # 成交入账（含费用）
     def finalize(self) -> Any: ...  # 返回结果快照
+    def emit(self, kind: str, payload: dict[str, Any]) -> None: ...  # 事件发布（6.3 信封源, W0）
 
 
 class UnifiedBacktestEngine:
@@ -97,20 +99,29 @@ class UnifiedBacktestEngine:
     # ------------------------------------------------------------------
     def run(self) -> Any:
         """跑完整回测; 返回会话的最终快照。"""
+        days = list(self.session.trading_days())
+        self._total_days = len(days)
+        self._t0 = _time.monotonic()
         try:
-            for dt in self.session.trading_days():
+            for idx, dt in enumerate(days):
                 if self.control.stop_requested:
                     self.status = "stopped"
                     break
-                self._run_day(dt)
+                self._run_day(dt, day_index=idx)
         except ZQuantError:
             self.status = "error"
+            self._emit("status", {"status": "error"})
             raise
         if self.status == "completed_exact" and self.degradations:
             self.status = "completed_degraded"
+        # 终态事件（W0 监控页状态条; committed 由 store.flush 在回测收尾时落定）
+        self._emit(
+            "status",
+            {"status": self.status, "degradations": list(self.degradations)},
+        )
         return self.session.finalize()
 
-    def _run_day(self, dt: datetime) -> None:
+    def _run_day(self, dt: datetime, day_index: int = 0) -> None:
         self.trace.hit("session_start")  # ①
         if not self.control.gate_open:
             self.trace.hit("paused_gate")  # M4 挂起占位
@@ -141,6 +152,7 @@ class UnifiedBacktestEngine:
         self.trace.hit("mark_to_market")
         nav = self.session.mark_to_market(dt)
         self._navs.append(nav)
+        self._emit_progress(dt, day_index)
         # ⑩ 分红到账（pay_date: receivable → available）
         self.trace.hit("dividend_settle")
         self.session.settle_dividends()
@@ -168,3 +180,28 @@ class UnifiedBacktestEngine:
     @property
     def daily_nav_rows(self) -> int:
         return len(self._navs)
+
+    # ------------------------------------------------------------------
+    # 进度/终态事件（W0 监控页: 进度条 + 状态条; 6.3 信封, 直发不经 WriteBuffer）
+    # ------------------------------------------------------------------
+    def _emit(self, kind: str, payload: dict[str, Any]) -> None:
+        emit = getattr(self.session, "emit", None)
+        if emit is not None:
+            emit(kind, payload)
+
+    def _emit_progress(self, dt: datetime, day_index: int) -> None:
+        done = day_index + 1
+        total = max(1, self._total_days)
+        elapsed = _time.monotonic() - self._t0
+        eta_sec = int(elapsed / done * (total - done)) if done else 0
+        self._emit(
+            "progress",
+            {
+                "trade_date": dt.date().isoformat(),
+                "day_index": day_index,
+                "total_days": total,
+                "percent": round(done / total, 4),
+                "elapsed_seconds": round(elapsed, 3),
+                "eta_seconds": eta_sec,
+            },
+        )

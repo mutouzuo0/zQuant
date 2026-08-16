@@ -1,8 +1,8 @@
 # coding:utf-8
 # @author      : 木头左
 # @create_time        : 2026/08/16 11:00:00
-# @update_time        : 2026/08/16 06:48:31
-# @description : I1 zquant CLI：run/list/report/replay/config/cache/fetch-etf/validate（设计 10.1）
+# @update_time        : 2026/08/16 09:16:00
+# @description : I1 zquant CLI：run/list/report/replay/config/cache/fetch-etf/validate/serve
 
 """zquant CLI（设计 10.1 三调用面之一; typer + rich, --json 机读）。
 
@@ -15,6 +15,7 @@
   config check                               配置存在性/密钥状态
   cache clean [--code X] [--all]             清理 parquet 二级缓存（3.7）
   fetch-etf --codes .. --start .. --end ..   下载 ETF 日线（3.9 裁剪版, 可 --demo）
+  serve [--with-task task.json]              本地浏览器监控回测（M2-W0, WS 事件流）
 
 结构化异常 → 彩色输出 + 机读（--json 时输出 error 对象, 退出码 1）。
 """
@@ -553,6 +554,24 @@ def cache(
         _print_json({"removed": removed})
     else:
         console.print(f"[green]✔[/green] 已清理 {removed} 个 parquet 缓存")
+
+
+# ============================================================
+# serve（M2-W0 最小可视版; 设计 7 章引言, 仅 127.0.0.1 本地可信）
+# ============================================================
+@app.command()
+def serve(
+    with_task: Annotated[
+        str | None,
+        typer.Option("--with-task", help="任务 JSON 路径; 提供则启动回测并实时推送到浏览器"),
+    ] = None,
+    host: Annotated[str, typer.Option("--host", help="监听地址（默认仅本地）")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="监听端口（M4 规划沿用 8501）")] = 8501,
+) -> None:
+    """Web 最小可视版: 浏览器实时监控 native 回测（WS 事件流, 6.3 信封）。"""
+    from zquant.server.run_local import run_serve
+
+    run_serve(with_task=with_task, host=host, port=port)
 
 
 if __name__ == "__main__":

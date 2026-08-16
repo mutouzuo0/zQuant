@@ -1,8 +1,8 @@
 # coding:utf-8
 # @author      : 木头左
 # @create_time        : 2026/08/16 06:48:31
-# @update_time        : 2026/08/16 06:48:31
-# @description : F5/I1 BacktestSession：生产化会话（SessionPort 实现）+ 任务配置解析（设计 3.6/5.1）
+# @update_time        : 2026/08/16 09:06:00
+# @description : F5/I1 BacktestSession：生产化会话 + 任务配置解析（3.6/5.1）
 
 """BacktestSession（设计 5.1 SessionPort 的生产实现，阶段 I 提炼自 golden DailyDriver）。
 
@@ -164,6 +164,9 @@ class BacktestSession:
         self._provider = provider
         self._calendar = calendar
         self._result_store = result_store
+        # M2-W0: 信封 run_id 归属（store 独立构造时可在此补齐, 6.3）
+        if result_store is not None and not result_store.run_id:
+            result_store.run_id = self.run_id
 
         # 平台适配器（native; M2 joinquant/ptrade 复用骨架）
         self._adapter: Any = cast(Any, create_adapter(task.strategy.type))
@@ -667,6 +670,10 @@ class BacktestSession:
     def _emit(self, kind: str, payload: dict[str, Any]) -> None:
         if self._result_store is not None:
             self._result_store.emit(kind, payload)
+
+    def emit(self, kind: str, payload: dict[str, Any]) -> None:
+        """事件发布入口（6.3 信封源; 引擎进度/终态与 M2-W0 WS 直发共用）。"""
+        self._emit(kind, payload)
 
     # ------------------------------------------------------------------
     # 收盘估值辅助
